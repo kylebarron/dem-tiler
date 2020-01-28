@@ -3,6 +3,7 @@
 Serve Map tile from Cloud Optimized GeoTIFF mosaics based on [mosaicJSON](https://github.com/developmentseed/mosaicjson-spec).
 
 [![CircleCI](https://circleci.com/gh/developmentseed/cogeo-mosaic-tiler.svg?style=svg)](https://circleci.com/gh/developmentseed/cogeo-mosaic-tiler)
+[![codecov](https://codecov.io/gh/developmentseed/cogeo-mosaic-tiler/branch/master/graph/badge.svg)](https://codecov.io/gh/developmentseed/cogeo-mosaic-tiler)
 
 **Read the official announcement https://medium.com/devseed/cog-talk-part-2-mosaics-bbbf474e66df**
 
