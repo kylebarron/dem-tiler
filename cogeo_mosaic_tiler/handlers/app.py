@@ -88,7 +88,7 @@ def _create(
     maxzoom: Union[str, int] = None,
     min_tile_cover: Union[str, float] = None,
     tile_cover_sort: Union[str, bool] = False,
-    tile_format: str = "png",
+    tile_format: str = None,
     tile_scale: Union[str, int] = 1,
     **kwargs: Any,
 ) -> Tuple[str, str, str]:
@@ -119,8 +119,16 @@ def _create(
                 key, bucket, _compress_gz_json(mosaic_definition), client=s3_client
             )
 
+    if tile_format in ["pbf", "mvt"]:
+        tile_url = f"{app.host}/{mosaicid}/{{z}}/{{x}}/{{y}}.{tile_format}"
+    elif tile_format in ["png", "jpg", "webp", "tif", "npy"]:
+        tile_url = (
+            f"{app.host}/{mosaicid}/{{z}}/{{x}}/{{y}}@{tile_scale}x.{tile_format}"
+        )
+    else:
+        tile_url = f"{app.host}/{mosaicid}/{{z}}/{{x}}/{{y}}@{tile_scale}x"
+
     qs = urllib.parse.urlencode(list(kwargs.items()))
-    tile_url = f"{app.host}/{mosaicid}/{{z}}/{{x}}/{{y}}@{tile_scale}x.{tile_format}"
     if qs:
         tile_url += f"?{qs}"
 
@@ -243,8 +251,8 @@ def _geojson(mosaicid: str = None, url: str = None) -> Tuple[str, str, str]:
 def _tilejson(
     mosaicid: str = None,
     url: str = None,
-    tile_format: str = "png",
     tile_scale: int = 1,
+    tile_format: str = None,
     **kwargs: Any,
 ) -> Tuple[str, str, str]:
     """Handle /tilejson.json requests."""
@@ -267,11 +275,16 @@ def _tilejson(
     else:
         host = f"{app.host}/{mosaicid}"
 
-    qs = urllib.parse.urlencode(list(kwargs.items()))
     if tile_format in ["pbf", "mvt"]:
-        tile_url = f"{host}/{{z}}/{{x}}/{{y}}.{tile_format}?{qs}"
+        tile_url = f"{host}/{{z}}/{{x}}/{{y}}.{tile_format}"
+    elif tile_format in ["png", "jpg", "webp", "tif", "npy"]:
+        tile_url = f"{host}/{{z}}/{{x}}/{{y}}@{tile_scale}x.{tile_format}"
     else:
-        tile_url = f"{host}/{{z}}/{{x}}/{{y}}@{tile_scale}x.{tile_format}?{qs}"
+        tile_url = f"{host}/{{z}}/{{x}}/{{y}}@{tile_scale}x"
+
+    qs = urllib.parse.urlencode(list(kwargs.items()))
+    if qs:
+        tile_url += f"?{qs}"
 
     meta = {
         "bounds": bounds,
@@ -457,7 +470,23 @@ def _postprocess(
     tag=["tiles"],
 )
 @app.route(
+    "/<int:z>/<int:x>/<int:y>",
+    methods=["GET"],
+    cors=True,
+    payload_compression_method="gzip",
+    binary_b64encode=True,
+    tag=["tiles"],
+)
+@app.route(
     "/<int:z>/<int:x>/<int:y>@<int:scale>x.<ext>",
+    methods=["GET"],
+    cors=True,
+    payload_compression_method="gzip",
+    binary_b64encode=True,
+    tag=["tiles"],
+)
+@app.route(
+    "/<int:z>/<int:x>/<int:y>@<int:scale>x",
     methods=["GET"],
     cors=True,
     payload_compression_method="gzip",
@@ -473,7 +502,23 @@ def _postprocess(
     tag=["tiles"],
 )
 @app.route(
+    "/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>",
+    methods=["GET"],
+    cors=True,
+    payload_compression_method="gzip",
+    binary_b64encode=True,
+    tag=["tiles"],
+)
+@app.route(
     "/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>@<int:scale>x.<ext>",
+    methods=["GET"],
+    cors=True,
+    payload_compression_method="gzip",
+    binary_b64encode=True,
+    tag=["tiles"],
+)
+@app.route(
+    "/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>@<int:scale>x",
     methods=["GET"],
     cors=True,
     payload_compression_method="gzip",
@@ -486,7 +531,7 @@ def _img(
     x: int = None,
     y: int = None,
     scale: int = 1,
-    ext: str = "png",
+    ext: str = None,
     url: str = None,
     indexes: str = None,
     rescale: str = None,
@@ -537,6 +582,9 @@ def _img(
             color_map = get_custom_cmap(color_map)
         else:
             color_map = get_colormap(color_map, format="gdal")
+
+    if not ext:
+        ext = "jpg" if mask.all() else "png"
 
     driver = "jpeg" if ext == "jpg" else ext
     options = img_profiles.get(driver, {})

@@ -111,7 +111,87 @@ def test_create_mosaic(aws_put_data, get_mosaic, event):
     tileurl = tilejson["tiles"][0]
     url_info = urllib.parse.urlparse(tileurl)
     assert url_info.netloc == "somewhere-over-the-rainbow.com"
+    assert re.match(r"/[0-9A-Fa-f]{56}/{z}/{x}/{y}@1x", url_info.path)
+    aws_put_data.assert_called()
+
+
+@patch("cogeo_mosaic_tiler.handlers.app.fetch_mosaic_definition")
+@patch("cogeo_mosaic_tiler.handlers.app._aws_put_data")
+def test_create_mosaicPNG(aws_put_data, get_mosaic, event):
+    """Test /create route."""
+    from cogeo_mosaic_tiler.handlers.app import app
+
+    event["path"] = "/create"
+    event["httpMethod"] = "POST"
+    event["isBase64Encoded"] = "true"
+    event["body"] = base64.b64encode(json.dumps([asset1, asset2]).encode()).decode(
+        "utf-8"
+    )
+    event["queryStringParameters"] = dict(tile_format="png")
+
+    headers = {
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "POST",
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json",
+    }
+
+    get_mosaic.side_effect = ClientError(
+        {"Error": {"Code": "404", "Message": "Not Found"}}, "get_object"
+    )
+    aws_put_data.return_value = True
+
+    res = app(event, {})
+    assert res["headers"] == headers
+    assert res["statusCode"] == 200
+    tilejson = json.loads(res["body"])
+    assert tilejson["bounds"]
+    assert tilejson["center"]
+    assert tilejson["name"]
+    tileurl = tilejson["tiles"][0]
+    url_info = urllib.parse.urlparse(tileurl)
+    assert url_info.netloc == "somewhere-over-the-rainbow.com"
     assert re.match(r"/[0-9A-Fa-f]{56}/{z}/{x}/{y}@1x.png", url_info.path)
+    aws_put_data.assert_called()
+
+
+@patch("cogeo_mosaic_tiler.handlers.app.fetch_mosaic_definition")
+@patch("cogeo_mosaic_tiler.handlers.app._aws_put_data")
+def test_create_mosaicMVT(aws_put_data, get_mosaic, event):
+    """Test /create route."""
+    from cogeo_mosaic_tiler.handlers.app import app
+
+    event["path"] = "/create"
+    event["httpMethod"] = "POST"
+    event["isBase64Encoded"] = "true"
+    event["body"] = base64.b64encode(json.dumps([asset1, asset2]).encode()).decode(
+        "utf-8"
+    )
+    event["queryStringParameters"] = dict(tile_format="mvt")
+
+    headers = {
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "POST",
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json",
+    }
+
+    get_mosaic.side_effect = ClientError(
+        {"Error": {"Code": "404", "Message": "Not Found"}}, "get_object"
+    )
+    aws_put_data.return_value = True
+
+    res = app(event, {})
+    assert res["headers"] == headers
+    assert res["statusCode"] == 200
+    tilejson = json.loads(res["body"])
+    assert tilejson["bounds"]
+    assert tilejson["center"]
+    assert tilejson["name"]
+    tileurl = tilejson["tiles"][0]
+    url_info = urllib.parse.urlparse(tileurl)
+    assert url_info.netloc == "somewhere-over-the-rainbow.com"
+    assert re.match(r"/[0-9A-Fa-f]{56}/{z}/{x}/{y}.mvt", url_info.path)
     aws_put_data.assert_called()
 
 
@@ -316,7 +396,7 @@ def test_tilejson(get_data, event):
 
     url_info = urllib.parse.urlparse(body["tiles"][0])
     assert url_info.netloc == "somewhere-over-the-rainbow.com"
-    assert url_info.path == "/{z}/{x}/{y}@1x.png"
+    assert url_info.path == "/{z}/{x}/{y}@1x"
     qs = urllib.parse.parse_qs(url_info.query)
     assert qs["url"][0] == "http://mymosaic.json"
     assert qs["rescale"][0] == "-1,1"
@@ -392,7 +472,7 @@ def test_tilejson_mosaicid(get_data):
     assert url_info.netloc == "somewhere-over-the-rainbow.com"
     assert (
         url_info.path
-        == "/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/{z}/{x}/{y}@1x.png"
+        == "/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/{z}/{x}/{y}@1x"
     )
     qs = urllib.parse.parse_qs(url_info.query)
     assert qs["rescale"][0] == "-1,1"
@@ -516,11 +596,29 @@ def test_API_tiles(get_assets, event):
     assert headers["Content-Type"] == "image/png"
     assert res["body"]
 
+    event["path"] = f"/9/155/182@2x"
+    event["httpMethod"] = "GET"
+    event["queryStringParameters"] = dict(url="http://mymosaic.json", rescale="0,10000")
+    res = app(event, {})
+    assert res["statusCode"] == 200
+    headers = res["headers"]
+    assert headers["Content-Type"] == "image/png"
+    assert res["body"]
+
+    event["path"] = f"/9/150/182"
+    event["httpMethod"] = "GET"
+    event["queryStringParameters"] = dict(url="http://mymosaic.json", rescale="0,10000")
+    res = app(event, {})
+    assert res["statusCode"] == 200
+    headers = res["headers"]
+    assert headers["Content-Type"] == "image/jpg"
+    assert res["body"]
+
     event[
         "path"
     ] = f"/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/9/150/182.png"
     event["httpMethod"] = "GET"
-    event["queryStringParameters"] = {}
+    event["queryStringParameters"] = dict(rescale="0,10000")
     res = app(event, {})
     assert res["statusCode"] == 200
     headers = res["headers"]
@@ -531,11 +629,22 @@ def test_API_tiles(get_assets, event):
         "path"
     ] = f"/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/9/150/182@2x.png"
     event["httpMethod"] = "GET"
-    event["queryStringParameters"] = {}
+    event["queryStringParameters"] = dict(rescale="0,10000")
     res = app(event, {})
     assert res["statusCode"] == 200
     headers = res["headers"]
     assert headers["Content-Type"] == "image/png"
+    assert res["body"]
+
+    event[
+        "path"
+    ] = f"/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/9/150/182@2x"
+    event["httpMethod"] = "GET"
+    event["queryStringParameters"] = dict(rescale="0,10000")
+    res = app(event, {})
+    assert res["statusCode"] == 200
+    headers = res["headers"]
+    assert headers["Content-Type"] == "image/jpg"
     assert res["body"]
 
 
