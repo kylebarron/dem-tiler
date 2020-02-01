@@ -1,4 +1,4 @@
-# cogeo-mosaic
+# cogeo-mosaic-tiler
 
 Serve Map tile from Cloud Optimized GeoTIFF mosaics based on [mosaicJSON](https://github.com/developmentseed/mosaicjson-spec).
 
