@@ -2,8 +2,31 @@
 
 Online API documentation can be found over `{endpoint}/docs`.
 
+## mosaicJSON path
 
-## - Create MosaicJSON
+The cogeo-mosaic-tiler support two ways of passing the mosaicJSON path.
+- `https://{endpoint-url}/{method}?url={mosaicURL}` 
+
+The **mosaicURL** can be any web hosted files.
+
+- `https://{endpoint-url}/{mosaicid}/{method}` (advanced method)
+
+The **mosaicid** should be a string matching `[0-9A-Fa-f]{56}` regex (usually created using `sha224sum mymosaic.json.gz`). When using mosaicid, the tiler will reconscruct a file s3 url and then result to `s3://{my-bucket}/mosaic/mosaicid.json.gz`
+
+```
+$ cogeo-mosaic create mylist.txt -o mosaic.json
+$ cat mosaic.json | gzip > mosaic.json.gz 
+
+$ sha224sum mosaic.json.gz
+92979ccd7d443ff826e493e4af707220ba77f16def6f15db86141ba8  mosaic.json.gz
+
+$ aws s3 cp mosaic.json.gz s3://my-bucket/mosaics/92979ccd7d443ff826e493e4af707220ba77f16def6f15db86141ba8.json.gz
+
+$ curl https://{endpoint-url}/92979ccd7d443ff826e493e4af707220ba77f16def6f15db86141ba8/info
+```
+
+
+## - Create MosaicJSON (Experimental)
 `/create`
 
 - methods:POST
@@ -15,7 +38,7 @@ Online API documentation can be found over `{endpoint}/docs`.
 Note: equivalent of running `cogeo-mosaic create` locally 
 
 ```bash
-$ curl -X POST -F 'json=@list.json' https://{endpoint-url}/mosaic/create`
+$ curl -X POST -F 'json=@list.json' https://{endpoint-url}/create`
 ```
 
 ## - Mosaic Metadata
