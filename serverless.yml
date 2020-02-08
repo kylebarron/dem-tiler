@@ -43,7 +43,7 @@ functions:
       GDAL_HTTP_MERGE_CONSECUTIVE_RANGES: YES
       GDAL_HTTP_MULTIPLEX: YES
       GDAL_HTTP_VERSION: 2
-      MAX_THREADS: 50
+      MAX_THREADS: 10
       MOSAIC_DEF_BUCKET: ${opt:bucket}
       PROJ_LIB: /opt/share/proj
       PYTHONWARNINGS: ignore
