@@ -11,7 +11,7 @@ The **mosaicURL** can be any web hosted files.
 
 - `https://{endpoint-url}/{mosaicid}/{method}` (advanced method)
 
-The **mosaicid** should be a string matching `[0-9A-Fa-f]{56}` regex (usually created using `sha224sum mymosaic.json.gz`). When using mosaicid, the tiler will reconscruct a file s3 url and then result to `s3://{my-bucket}/mosaic/mosaicid.json.gz`
+The **mosaicid** should be a string matching `[0-9A-Fa-f]{56}` regex (usually created using `sha224sum mymosaic.json.gz`). When using mosaicid, the tiler will reconscruct a file s3 url and then result to `s3://{my-bucket}/mosaics/mosaicid.json.gz`
 
 ```
 $ cogeo-mosaic create mylist.txt -o mosaic.json
