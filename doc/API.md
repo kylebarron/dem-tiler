@@ -38,7 +38,25 @@ $ curl https://{endpoint-url}/92979ccd7d443ff826e493e4af707220ba77f16def6f15db86
 Note: equivalent of running `cogeo-mosaic create` locally 
 
 ```bash
-$ curl -X POST -F 'json=@list.json' https://{endpoint-url}/create`
+$ curl -X POST -d @list.json https://{endpoint-url}/create`
+```
+
+## - Add MosaicJSON 
+`/add`
+
+- methods:POST
+- **body**
+  - content: mosaicJSON (created by `cogeo-mosaic create`)
+  - format: **json**
+- returns: mosaic info (application/json, compression: **gzip**)
+
+```bash
+$ curl -X POST -d @list.json https://{endpoint-url}/add`
+
+{
+  "id": "d4c05a130c8a336c6..........2cbc5c34aed85feffdaafd01ef",
+  "url": "s3://{my-bucket}/mosaics/d4c05a130c8a336c647ef83fe...........ffdaafd01ef.json.gz"
+}
 ```
 
 ## - Mosaic Metadata

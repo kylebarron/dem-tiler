@@ -10,8 +10,8 @@ provider:
 
   # Add Tags to resources
   stackTags:
-    project: labs
-  
+    Project: cogeo
+
   apiGateway:
     binaryMediaTypes:
       - '*/*'
@@ -24,6 +24,12 @@ provider:
        - "*"
      Resource:
        - "arn:aws:s3:::${opt:bucket}*"
+  -  Effect: "Allow"
+     Action:
+       - "s3:GetObject"
+       - "s3:HeadObject"
+     Resource:       
+       - "arn:aws:s3:::*"
 
 package:
   artifact: package.zip

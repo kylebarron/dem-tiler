@@ -146,6 +146,32 @@ def _create(
 
 
 @app.route(
+    "/add",
+    methods=["POST"],
+    cors=True,
+    payload_compression_method="gzip",
+    binary_b64encode=True,
+    tag=["mosaic"],
+)
+def _add(body: str, mosaicid: str = None) -> Tuple[str, str, str]:
+    # TODO: Need validation
+    mosaic_definition = json.loads(body)
+
+    if not mosaicid:
+        mosaicid = get_hash(body=body)
+
+    key = f"mosaics/{mosaicid}.json.gz"
+    bucket = os.environ["MOSAIC_DEF_BUCKET"]
+    _aws_put_data(key, bucket, _compress_gz_json(mosaic_definition), client=s3_client)
+
+    return (
+        "OK",
+        "application/json",
+        json.dumps({"id": mosaicid, "url": f"s3://{bucket}/{key}"}),
+    )
+
+
+@app.route(
     "/info",
     methods=["GET"],
     cors=True,

@@ -76,6 +76,50 @@ def test_favicon(event):
     assert res == resp
 
 
+@patch("cogeo_mosaic_tiler.handlers.app._aws_put_data")
+def test_add_mosaic(aws_put_data, event):
+    """Test /add route."""
+    from cogeo_mosaic_tiler.handlers.app import app
+
+    event["path"] = "/add"
+    event["httpMethod"] = "POST"
+    event["body"] = json.dumps(mosaic_content).encode()
+
+    headers = {
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "POST",
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json",
+    }
+    aws_put_data.return_value = True
+
+    res = app(event, {})
+    assert res["headers"] == headers
+    assert res["statusCode"] == 200
+    aws_put_data.assert_called()
+    aws_put_data.reset_mock()
+
+    event["isBase64Encoded"] = "true"
+    event["body"] = base64.b64encode(json.dumps(mosaic_content).encode()).decode(
+        "utf-8"
+    )
+    aws_put_data.return_value = True
+
+    res = app(event, {})
+    assert res["headers"] == headers
+    assert res["statusCode"] == 200
+    aws_put_data.assert_called()
+    aws_put_data.reset_mock()
+
+    event["queryStringParameters"] = dict(
+        mosaicid="b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516"
+    )
+    res = app(event, {})
+    assert res["headers"] == headers
+    assert res["statusCode"] == 200
+    aws_put_data.assert_called()
+
+
 @patch("cogeo_mosaic_tiler.handlers.app.fetch_mosaic_definition")
 @patch("cogeo_mosaic_tiler.handlers.app._aws_put_data")
 def test_create_mosaic(aws_put_data, get_mosaic, event):
