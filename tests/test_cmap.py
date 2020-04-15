@@ -1,4 +1,3 @@
-
 """tests cogeo_mosaic.custom_cmaps."""
 
 import pytest

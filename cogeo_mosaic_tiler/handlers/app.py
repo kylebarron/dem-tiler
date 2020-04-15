@@ -23,7 +23,6 @@ from rio_tiler.main import tile as cogeoTiler
 from rio_tiler.utils import array_to_image, get_colormap, linear_rescale
 from rio_tiler.profiles import img_profiles
 
-from rio_tiler_mvt.mvt import encoder as mvtEncoder
 from rio_tiler_mosaic.mosaic import mosaic_tiler
 from rio_tiler_mosaic.methods import defaults
 
@@ -411,6 +410,8 @@ def _mvt(
     resampling_method: str = "nearest",
 ) -> Tuple[str, str, BinaryIO]:
     """Handle MVT requests."""
+    from rio_tiler_mvt.mvt import encoder as mvtEncoder
+
     if mosaicid:
         url = _create_path(mosaicid)
     elif url is None:
