@@ -42,7 +42,7 @@ functions:
     memorySize: 2048
     timeout: 10
     layers:
-      - arn:aws:lambda:${self:provider.region}:524387336408:layer:gdal24-py37-cogeo:6
+      - arn:aws:lambda:${self:provider.region}:524387336408:layer:gdal24-py37-geolayer:1
     environment:
       CPL_TMPDIR: /tmp
       GDAL_CACHEMAX: 25%
