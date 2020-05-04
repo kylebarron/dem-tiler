@@ -30,7 +30,7 @@ provider:
      Action:
        - "s3:GetObject"
        - "s3:HeadObject"
-     Resource:       
+     Resource:
        - "arn:aws:s3:::*"
 
 package:
@@ -58,7 +58,7 @@ functions:
       VSI_CACHE: TRUE
       VSI_CACHE_SIZE: 536870912
     events:
-      - http:
+      - httpApi:
           path: /{proxy+}
-          method: any
+          method: '*'
           cors: true
