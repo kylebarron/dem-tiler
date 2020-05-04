@@ -1,4 +1,4 @@
-FROM remotepixel/amazonlinux:gdal2.4-py3.7-cogeo
+FROM lambgeo/lambda:gdal2.4-py3.7-geolayer
 
 WORKDIR /tmp
 

@@ -14,14 +14,14 @@ from botocore.errorfactory import ClientError
 import mercantile
 import rasterio
 from rasterio.session import AWSSession
-from rasterio.transform import from_bounds
 
 from rio_color.utils import scale_dtype, to_math_type
 from rio_color.operations import parse_operations
 
-from rio_tiler.main import tile as cogeoTiler
-from rio_tiler.utils import array_to_image, get_colormap, linear_rescale
+from rio_tiler.colormap import get_colormap
+from rio_tiler.io.cogeo import tile as cogeoTiler
 from rio_tiler.profiles import img_profiles
+from rio_tiler.utils import render, linear_rescale, geotiff_options
 
 from rio_tiler_mosaic.mosaic import mosaic_tiler
 from rio_tiler_mosaic.methods import defaults
@@ -608,7 +608,7 @@ def _img(
         if color_map.startswith("custom_"):
             color_map = get_custom_cmap(color_map)
         else:
-            color_map = get_colormap(color_map, format="gdal")
+            color_map = get_colormap(color_map)
 
     if not ext:
         ext = "jpg" if mask.all() else "png"
@@ -619,16 +619,12 @@ def _img(
     if ext == "tif":
         ext = "tiff"
         driver = "GTiff"
-        tile_bounds = mercantile.xy_bounds(mercantile.Tile(x=x, y=y, z=z))
-        options = dict(
-            crs={"init": "EPSG:3857"},
-            transform=from_bounds(*tile_bounds, tilesize, tilesize),
-        )
+        options = geotiff_options(x, y, z, tilesize)
 
     return (
         "OK",
         f"image/{ext}",
-        array_to_image(rtile, mask, img_format=driver, color_map=color_map, **options),
+        render(rtile, mask, img_format=driver, colormap=color_map, **options),
     )
 
 
