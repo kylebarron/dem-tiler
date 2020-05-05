@@ -259,6 +259,7 @@ def test_info(backend, app, event):
 
     headers = {
         "Content-Type": "application/json",
+        "Cache-Control": "max-age=3600",
     }
 
     backend.side_effect = MosaicMock
@@ -302,6 +303,7 @@ def test_info_mosaicid(backend, app, event):
 
     headers = {
         "Content-Type": "application/json",
+        "Cache-Control": "max-age=3600",
     }
     backend.side_effect = MosaicMock
 
@@ -337,6 +339,7 @@ def test_geojson_mosaicid(backend, app, event):
 
     headers = {
         "Content-Type": "application/json",
+        "Cache-Control": "max-age=3600",
     }
     backend.side_effect = MosaicMock
 
@@ -367,6 +370,7 @@ def test_tilejson(backend, app, event):
 
     headers = {
         "Content-Type": "application/json",
+        "Cache-Control": "max-age=3600",
     }
     res = app(event, {})
     assert res["statusCode"] == 400
@@ -438,6 +442,7 @@ def test_tilejson_mosaicid(backend, app, event):
 
     headers = {
         "Content-Type": "application/json",
+        "Cache-Control": "max-age=3600",
     }
     backend.side_effect = MosaicMock
 
@@ -478,6 +483,7 @@ def test_get_mosaic_wmts(backend, app, event):
 
     headers = {
         "Content-Type": "application/xml",
+        "Cache-Control": "max-age=3600",
     }
     backend.side_effect = MosaicMock
 
@@ -497,6 +503,7 @@ def test_get_mosaic_wmts_mosaicid(backend, app, event):
 
     headers = {
         "Content-Type": "application/xml",
+        "Cache-Control": "max-age=3600",
     }
     backend.side_effect = MosaicMock
 

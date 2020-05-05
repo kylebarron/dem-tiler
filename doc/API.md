@@ -1,28 +1,66 @@
 # API
 
-Online API documentation can be found over `{endpoint}/docs`.
+Online API documentation can be found at `{endpoint}/docs`.
 
 ## mosaicJSON path
 
-The cogeo-mosaic-tiler support two ways of passing the mosaicJSON path.
-- `https://{endpoint-url}/{method}?url={mosaicURL}` 
-
-The **mosaicURL** can be any web hosted files.
-
-- `https://{endpoint-url}/{mosaicid}/{method}` (advanced method)
-
-The **mosaicid** should be a string matching `[0-9A-Fa-f]{56}` regex (usually created using `sha224sum mymosaic.json.gz`). When using mosaicid, the tiler will reconscruct a file s3 url and then result to `s3://{my-bucket}/mosaics/mosaicid.json.gz`
+Every method to `cogeo-mosaic-tiler` accepts a `url` parameter, which allows for
+describing the path to the MosaicJSON, and further allows using different
+backends, such as an internet URL over HTTP, a file on S3, or a DynamoDB table.
 
 ```
-$ cogeo-mosaic create mylist.txt -o mosaic.json
-$ cat mosaic.json | gzip > mosaic.json.gz 
+https://{endpoint-url}/{method}?url={mosaicURL}
+```
+
+For example:
+
+- S3:
+    - `https://{endpoint-url}/{method}?url=s3://{bucket}/{key}`
+- HTTP:
+    - `https://{endpoint-url}/{method}?url=http(s)://example.com/path/to/mosaic`
+- DynamoDB. If you don't pass a region, the local region is assumed. Note that if you don't pass a region you need _three_ `///`.
+    - `https://{endpoint-url}/{method}?url=dynamodb://{AWS region}/{mosaicid}`
+    - `https://{endpoint-url}/{method}?url=dynamodb:///{mosaicid}`
+-  Local file. Note if you pass `file:///` you need _three_ `///`.
+    - `https://{endpoint-url}/{method}?url=file:///path/to/local/file`
+    - `https://{endpoint-url}/{method}?url=/path/to/local/file`
+    - `https://{endpoint-url}/{method}?url=./relative/path/to/local/file`
+    - `https://{endpoint-url}/{method}?url=relative/path/to/local/file`
+
+Historically, a  **`mosaicid`** is a 56-character hexadecimal string (matching `[0-9A-Fa-f]{56}` regex), usually created using `sha224sum mymosaic.json.gz`.
+
+```
+$ cogeo-mosaic create mylist.txt -o mosaic.json.gz
 
 $ sha224sum mosaic.json.gz
 92979ccd7d443ff826e493e4af707220ba77f16def6f15db86141ba8  mosaic.json.gz
+```
 
-$ aws s3 cp mosaic.json.gz s3://my-bucket/mosaics/92979ccd7d443ff826e493e4af707220ba77f16def6f15db86141ba8.json.gz
+## Using mosaicid
 
+Most of the `GET` requests support using **mosaicid** in the path (prefix) instead of passing an url. When using mosaicid, the tiler will reconscruct a file s3 url and then result to `s3://{bucket}/mosaics/mosaicid.json.gz`, with `{bucket}` set in the environment variable. 
+
+```python
+# https://github.com/developmentseed/cogeo-mosaic-tiler/blob/1bebcae6c3d8e5d726fc1ba55c40c79d23bdab15/cogeo_mosaic_tiler/handlers/app.py#L59-L66
+def _create_mosaic_path(
+    mosaicid: str,
+    bucket: str = os.environ["MOSAIC_DEF_BUCKET"],
+    prefix: str = os.environ.get("MOSAIC_PREFIX", "mosaics"),
+) -> str:
+    """Translate mosaicid to s3 path."""
+    key = f"{prefix}/{mosaicid}.json.gz" if prefix else f"{mosaicid}.json.gz"
+    return f"s3://{bucket}/{key}"
+```
+
+#### Example
+
+```
 $ curl https://{endpoint-url}/92979ccd7d443ff826e493e4af707220ba77f16def6f15db86141ba8/info
+```
+will give the same result as
+
+```
+$ curl https://{endpoint-url}/info?url=s3://{bucket}/mosaics/92979ccd7d443ff826e493e4af707220ba77f16def6f15db86141ba8.json.gz
 ```
 
 
@@ -35,18 +73,19 @@ $ curl https://{endpoint-url}/92979ccd7d443ff826e493e4af707220ba77f16def6f15db86
   - format: **json**
 - returns: mosaic definition (application/json, compression: **gzip**)
 
-Note: equivalent of running `cogeo-mosaic create` locally 
+Note: equivalent of running `cogeo-mosaic create` locally
 
 ```bash
 $ curl -X POST -d @list.json https://{endpoint-url}/create`
 ```
 
-## - Add MosaicJSON 
+## - Add MosaicJSON
 `/add`
 
 - methods:POST
 - **body**
   - content: mosaicJSON (created by `cogeo-mosaic create`)
+  - mosaicid: string matching `[0-9A-Fa-f]{56}` regex
   - format: **json**
 - returns: mosaic info (application/json, compression: **gzip**)
 
@@ -54,66 +93,47 @@ $ curl -X POST -d @list.json https://{endpoint-url}/create`
 $ curl -X POST -d @list.json https://{endpoint-url}/add`
 
 {
-  "id": "d4c05a130c8a336c6..........2cbc5c34aed85feffdaafd01ef",
-  "url": "s3://{my-bucket}/mosaics/d4c05a130c8a336c647ef83fe...........ffdaafd01ef.json.gz"
+  "id": "d4c05a130c8a336c6..........2cbc5c34aed85feffdaafd01ef", "status": "READY"
 }
 ```
 
 ## - Mosaic Metadata
+
 `/info`
+
 - methods: GET
 - **url** (in querytring): mosaic definition url
 - returns: mosaic defintion info (application/json, compression: **gzip**)
 
 ```bash
-$ curl https://{endpoint-url}/info?url=https://my-mosaic.json.gz
+$ curl https://{endpoint-url}/info?url=s3://my_bucket/my_mosaic.json.gz
 ```
 
-`/<mosaicid>/info`
-- methods: GET
-- **mosaicid** (in path): mosaic definition id
-- returns: mosaic defintion info (application/json, compression: **gzip**)
-
-
-```bash
-$ curl https://{endpoint-url}/0505ad234b5fb97df134001709b8a42eddce5d
-03b200eb8f7f4540d6/info
-```
-
-```json
+```js
 {
     "bounds": [],                // mosaic bounds
     "center": [lon, lat, zoom],     // mosaic center
     "maxzoom": 22,                  // mosaic max zoom
     "minzoom": 18,                  // mosaic min zoom
     "name": "0505ad234b5fb97df134001709b8a42eddce5d03b200eb8f7f4540d6", // mosaic basename
-    "quadkeys": [],              // list of quakeys
-    "layers": [] ,               // dataset band names
+    "quadkeys": [],              // list of quakeys (not returned for dynamoDB backend)
+    "layers": [] ,               // dataset band names (not returned for dynamoDB backend)
 }
 ```
 
 ## - Mosaic GeoJSON
 
 `/geojson`
+
 - methods: GET
 - **url** (in querytring): mosaic definition url
 - returns: mosaic-json as geojson (application/json, compression: **gzip**)
 
 ```bash
-$ curl https://{endpoint-url}/geojson?url=s3://my_file.json.gz
+$ curl https://{endpoint-url}/geojson?url=s3://my_bucket/my_mosaic.json.gz
 ```
 
-`/<mosaicid>/geojson`
-- methods: GET
-- **mosaicid** (in path): mosaic definition id
-- returns: mosaic-json as geojson (application/json, compression: **gzip**)
-
-```bash
-$ curl https://{endpoint-url}/0505ad234b5fb97df134001709b8a42eddce5d
-03b200eb8f7f4540d6/geojson
-```
-
-```json
+```js
 {
     "type":"FeatureCollection",
     "features":[
@@ -149,21 +169,7 @@ $ curl https://{endpoint-url}/0505ad234b5fb97df134001709b8a42eddce5d
 - returns: tileJSON defintion (application/json, compression: **gzip**)
 
 ```bash
-$ curl https://{endpoint-url}/tilejson.json?url=s3://my_file.json.gz
-```
-
-`/<mosaicid>/tilejson.json`
-
-- methods: GET
-- **mosaicid** (in path): mosaic definition id
-- **tile_format** (optional, str): output tile format (default: "png")
-- **tile_scale** (optional, int): output tile scale (default: 1 = 256px)
-- **kwargs** (in querytring): tiler options
-- returns: tileJSON defintion (application/json, compression: **gzip**)
-
-```bash
-$ curl https://{endpoint-url}/0505ad234b5fb97df134001709b8a42eddce5d
-03b200eb8f7f4540d6/tilejson.json
+$ curl https://{endpoint-url}/tilejson.json?url=s3://my_bucket/my_mosaic.json.gz
 ```
 
 ```json
@@ -172,7 +178,7 @@ $ curl https://{endpoint-url}/0505ad234b5fb97df134001709b8a42eddce5d
     "center": [lon, lat, minzoom],
     "maxzoom": 22,
     "minzoom": 18,
-    "name": "s3://my_file.json.gz",
+    "name": "s3://my_bucket/my_mosaic.json.gz",
     "tilejson": "2.1.0",
     "tiles": [
         "https://{endpoint-url}/{{z}}/{{x}}/{{y}}@2x.<ext>"
@@ -193,23 +199,9 @@ $ curl https://{endpoint-url}/0505ad234b5fb97df134001709b8a42eddce5d
 - returns: WMTS xml (application/xml, compression: **gzip**)
 
 ```bash
-$ curl https://{endpoint-url}/wmts?url=s3://my_file.json.gz)
+$ curl https://{endpoint-url}/wmts?url=s3://my_bucket/my_mosaic.json.gz
 ```
 
-`/<mosaicid>/wmts`
-
-- methods: GET
-- **mosaicid** (in path): mosaic definition id
-- **tile_format** (optional, str): output tile format (default: "png")
-- **tile_scale** (optional, int): output tile scale (default: 1 = 256px)
-- **title** (optional, str): layer name (default: "Cloud Optimizied GeoTIFF Mosaic")
-- **kwargs** (in querytring): tiler options
-- returns: WMTS xml (application/xml, compression: **gzip**)
-
-```bash
-$ curl https://{endpoint-url}/0505ad234b5fb97df134001709b8a42eddce5d
-03b200eb8f7f4540d6/wmts
-```
 <details>
 
 ```xml
@@ -314,10 +306,10 @@ $ curl https://{endpoint-url}/0505ad234b5fb97df134001709b8a42eddce5d
 ```
 </details>
 
-## - image tiles
-`/<int:z>/<int:x>/<int:y>.<ext>`
+## - Image tiles
 
-`/<int:z>/<int:x>/<int:y>@2x.<ext>`
+- `/<int:z>/<int:x>/<int:y>.<ext>`
+- `/<int:z>/<int:x>/<int:y>@2x.<ext>`
 
 - methods: GET
 - **z**: Mercator tile zoom value
@@ -336,35 +328,14 @@ $ curl https://{endpoint-url}/0505ad234b5fb97df134001709b8a42eddce5d
 - returns: image body (image/jpeg)
 
 ```bash
-$ curl https://{endpoint-url}/8/32/22.png?url=s3://my_file.json.gz&indexes=1,2,3&rescale=100,3000&color_ops=Gamma RGB 3&pixel_selection=first
-```
-
-`/<mosaicid>/<int:z>/<int:x>/<int:y>.<ext>`
-
-`/<mosaicid>/<int:z>/<int:x>/<int:y>@2x.<ext>`
-
-- methods: GET
-- **mosaicid** (in path): mosaic definition id
-- **z**: Mercator tile zoom value
-- **x**: Mercator tile x value
-- **y**: Mercator tile y value
-- **scale**: Tile scale (default: 1)
-- **ext**: Output tile format (e.g `jpg`)
-- **indexes** (optional, str): dataset band indexes (default: None)
-- **rescale** (optional, str): min/max for data rescaling (default: None)
-- **color_ops** (optional, str): rio-color formula (default: None)
-- **color_map** (optional, str): rio-tiler colormap (default: None)
-- **pixel_selection** (optional, str): mosaic pixel selection (default: `first`)
-- **resampling_method** (optional, str): tiler resampling method (default: `nearest`)
-- compression: **gzip**
-- returns: image body (image/jpeg)
-
-```bash
-$ curl https://{endpoint-url}/0505ad234b5fb97df134001709b8a42eddce5d
-03b200eb8f7f4540d6/8/32/22.png?indexes=1,2,3&rescale=100,3000&color_ops=Gamma RGB 3&pixel_selection=first
+$ curl https://{endpoint-url}/8/32/22.png?url=s3://my_bucket/my_mosaic.json.gz&indexes=1,2,3&rescale=100,3000&color_ops=Gamma RGB 3&pixel_selection=first
 ```
 
 ## - Vector tiles
+
+Note that generating vector tiles depends on the optional dependency
+`rio-tiler-mvt`. If the vector tile endpoint is requested and the dependency is
+not installed, an error will be raised.
 
 `/<int:z>/<int:x>/<int:y>.<pbf>`
 
@@ -382,28 +353,8 @@ $ curl https://{endpoint-url}/0505ad234b5fb97df134001709b8a42eddce5d
 - returns: tile body (application/x-protobuf)
 
 ```bash
-$ curl https://{endpoint-url}/8/32/22.pbf?url=s3://my_file.json.gz&pixel_selection=first
+$ curl https://{endpoint-url}/8/32/22.pbf?url=s3://my_bucket/my_mosaic.json.gz&pixel_selection=first
 ```
-
-`/<mosaicid>/<int:z>/<int:x>/<int:y>.<pbf>`
-
-- methods: GET
-- **mosaicid** (in path): mosaic definition id
-- **z**: Mercator tile zoom value
-- **x**: Mercator tile x value
-- **y**: Mercator tile y value
-- **tile_size**: (optional, int) Tile size (default: 256)
-- **pixel_selection** (optional, str): mosaic pixel selection (default: `first`)
-- **feature_type** (optional, str): feature type (default: `point`)
-- **resampling_method** (optional, str): tiler resampling method (default: `nearest`)
-- compression: **gzip**
-- returns: tile body (application/x-protobuf)
-
-```bash
-$ curl https://{endpoint-url}/0505ad234b5fb97df134001709b8a42eddce5d
-03b200eb8f7f4540d6/8/32/22.pbf?pixel_selection=first
-```
-
 
 ### - Point Value
 
@@ -417,20 +368,5 @@ $ curl https://{endpoint-url}/0505ad234b5fb97df134001709b8a42eddce5d
 - returns: json(application/json, compression: **gzip**)
 
 ```bash
-$ curl https://{endpoint-url}/point?url=s3://my_file.json.gz&lng=10&lat=-10
+$ curl https://{endpoint-url}/point?url=s3://my_bucket/my_mosaic.json.gz&lng=10&lat=-10
 ```
-
-`/<mosaicid>/point`
-
-- methods: GET
-- **mosaicid** (in path): mosaic definition id
-- **lng** (required, float): longitude
-- **lat** (required, float): lattitude
-- compression: **gzip**
-- returns: tile body (application/x-protobuf)
-
-```bash
-$ curl https://{endpoint-url}/0505ad234b5fb97df134001709b8a42eddce5d
-03b200eb8f7f4540d6/point?lng=10&lat=-10
-```
-
