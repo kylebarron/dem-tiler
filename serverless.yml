@@ -5,6 +5,8 @@ provider:
   runtime: python3.7
   stage: ${opt:stage, 'production'}
   region: ${opt:region, 'us-east-1'}
+  httpApi:
+    cors: true
 
   deploymentBucket: ${opt:bucket}
 
@@ -44,6 +46,7 @@ functions:
     layers:
       - arn:aws:lambda:${self:provider.region}:524387336408:layer:gdal24-py37-geolayer:1
     environment:
+      CACHE_CONTROL: ${opt:cache-control, 'max-age=3600'}
       CPL_TMPDIR: /tmp
       GDAL_CACHEMAX: 25%
       GDAL_DATA: /opt/share/gdal
@@ -61,4 +64,3 @@ functions:
       - httpApi:
           path: /{proxy+}
           method: '*'
-          cors: true

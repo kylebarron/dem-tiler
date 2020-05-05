@@ -83,6 +83,7 @@ def testing_env_var(monkeypatch):
     monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", "/tmp/noconfighereeither")
     monkeypatch.setenv("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
     monkeypatch.setenv("MOSAIC_DEF_BUCKET", "my-bucket")
+    monkeypatch.setenv("CACHE_CONTROL", "max-age=3600")
 
 
 @pytest.fixture()
@@ -112,12 +113,7 @@ def test_favicon(app, event):
     event["path"] = "/favicon.ico"
     resp = {
         "body": "",
-        "headers": {
-            "Access-Control-Allow-Credentials": "true",
-            "Access-Control-Allow-Methods": "GET",
-            "Access-Control-Allow-Origin": "*",
-            "Content-Type": "text/plain",
-        },
+        "headers": {"Content-Type": "text/plain"},
         "statusCode": 204,
     }
     res = app(event, {})
@@ -135,9 +131,6 @@ def test_add_mosaic(backend, head, app, event):
         mosaicid="b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516"
     )
     headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "POST",
-        "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
     }
     backend.side_effect = MosaicMock
@@ -153,9 +146,6 @@ def test_add_mosaic(backend, head, app, event):
     backend.reset_mock()
 
     headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "POST",
-        "Access-Control-Allow-Origin": "*",
         "Content-Type": "text/plain",
     }
     head.return_value = True
@@ -180,9 +170,6 @@ def test_create_mosaic(backend, app, event):
     )
 
     headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "POST",
-        "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
     }
 
@@ -214,9 +201,6 @@ def test_create_mosaicPNG(backend, app, event):
     event["queryStringParameters"] = dict(tile_format="png")
 
     headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "POST",
-        "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
     }
 
@@ -248,9 +232,6 @@ def test_create_mosaicMVT(backend, app, event):
     event["queryStringParameters"] = dict(tile_format="mvt")
 
     headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "POST",
-        "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
     }
 
@@ -277,9 +258,6 @@ def test_info(backend, app, event):
     event["queryStringParameters"] = dict(url="s3://my-bucket/mymosaic.json")
 
     headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET",
-        "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
     }
 
@@ -323,9 +301,6 @@ def test_info_mosaicid(backend, app, event):
     event["path"] = "/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/info"
 
     headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET",
-        "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
     }
     backend.side_effect = MosaicMock
@@ -361,9 +336,6 @@ def test_geojson_mosaicid(backend, app, event):
     event["path"] = "/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/geojson"
 
     headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET",
-        "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
     }
     backend.side_effect = MosaicMock
@@ -394,9 +366,6 @@ def test_tilejson(backend, app, event):
     event["path"] = "/tilejson.json"
 
     headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET",
-        "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
     }
     res = app(event, {})
@@ -468,9 +437,6 @@ def test_tilejson_mosaicid(backend, app, event):
     event["queryStringParameters"] = dict(rescale="-1,1")
 
     headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET",
-        "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
     }
     backend.side_effect = MosaicMock
@@ -511,9 +477,6 @@ def test_get_mosaic_wmts(backend, app, event):
     )
 
     headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET",
-        "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/xml",
     }
     backend.side_effect = MosaicMock
@@ -533,9 +496,6 @@ def test_get_mosaic_wmts_mosaicid(backend, app, event):
     event["queryStringParameters"] = dict(tile_scale="2")
 
     headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET",
-        "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/xml",
     }
     backend.side_effect = MosaicMock
@@ -588,6 +548,7 @@ def test_API_tiles(backend, app, event):
     res = app(event, {})
     assert res["statusCode"] == 200
     assert res["headers"]["Content-Type"] == "image/png"
+    assert res["headers"].get("Cache-Control")
     assert res["body"]
 
     event["path"] = f"/9/150/182.png"

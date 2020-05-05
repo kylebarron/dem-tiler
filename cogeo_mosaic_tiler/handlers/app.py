@@ -44,8 +44,9 @@ PIXSEL_METHODS = {
 }
 app = API(name="cogeo-mosaic-tiler")
 
-params = dict(cors=True, payload_compression_method="gzip", binary_b64encode=True)
-
+params = dict(payload_compression_method="gzip", binary_b64encode=True)
+if os.environ.get("CORS"):
+    params["cors"] = True
 
 # We are storing new mosaicjson on AWS S3, if a user wants to change the storage
 # You could just change this function
@@ -154,6 +155,9 @@ def _add(body: str, mosaicid: str) -> Tuple:
         "application/json",
         json.dumps({"id": mosaicid, "status": "READY"}, separators=(",", ":")),
     )
+
+
+params["cache_control"] = os.environ.get("CACHE_CONTROL", None)
 
 
 @app.get("/info", tag=["metadata"], **params)
@@ -465,8 +469,8 @@ def _img(
     )
 
 
-@app.route("/point", **params)
-@app.route("/<regex([0-9A-Fa-f]{56}):mosaicid>/point", **params)
+@app.get("/point", **params)
+@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/point", **params)
 def _point(
     mosaicid: str = None, lng: float = None, lat: float = None, url: str = None
 ) -> Tuple[str, str, str]:
@@ -504,7 +508,7 @@ def _point(
         return ("OK", "application/json", json.dumps(meta, separators=(",", ":")))
 
 
-@app.get("/favicon.ico", methods=["GET"], cors=True, tag=["other"])
+@app.get("/favicon.ico", tag=["other"])
 def favicon() -> Tuple[str, str, str]:
     """Favicon."""
     return ("EMPTY", "text/plain", "")
