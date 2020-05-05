@@ -84,7 +84,7 @@ def _create(
     minzoom = int(minzoom) if isinstance(minzoom, str) else minzoom
     maxzoom = int(maxzoom) if isinstance(maxzoom, str) else maxzoom
     min_tile_cover = (
-        float(min_tile_cover) if isinstance(min_tile_cover, float) else min_tile_cover
+        float(min_tile_cover) if isinstance(min_tile_cover, str) else min_tile_cover
     )
 
     mosaicid = get_hash(
