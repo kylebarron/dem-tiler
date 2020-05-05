@@ -140,7 +140,7 @@ def _create(
         "tiles": [tile_url],
     }
 
-    return ("OK", "application/json", json.dumps(meta))
+    return ("OK", "application/json", json.dumps(meta, separators=(",", ":")))
 
 
 @app.post("/add", tag=["mosaic"], **params)
@@ -154,7 +154,11 @@ def _add(body: str, mosaicid: str) -> Tuple:
     ) as mosaic:
         mosaic.write()
 
-    return ("OK", "application/json", json.dumps({"id": mosaicid, "status": "READY"}))
+    return (
+        "OK",
+        "application/json",
+        json.dumps({"id": mosaicid, "status": "READY"}, separators=(",", ":")),
+    )
 
 
 @app.get("/info", tag=["metadata"], **params)
@@ -191,7 +195,7 @@ def _info(mosaicid: str = None, url: str = None) -> Tuple:
                 "Cannot retrieve 'quadkeys,layers and dtype' from dynamoDB mosaic."
             )
 
-        return ("OK", "application/json", json.dumps(response))
+        return ("OK", "application/json", json.dumps(response, separators=(",", ":")))
 
 
 @app.get("/geojson", tag=["metadata"], **params)
@@ -213,7 +217,7 @@ def _geojson(mosaicid: str = None, url: str = None) -> Tuple:
             ],
         }
 
-    return ("OK", "application/json", json.dumps(geojson))
+    return ("OK", "application/json", json.dumps(geojson, separators=(",", ":")))
 
 
 params["tag"] = ["tiles"]
@@ -261,7 +265,7 @@ def _tilejson(
             "tilejson": "2.1.0",
             "tiles": [tile_url],
         }
-    return ("OK", "application/json", json.dumps(response))
+    return ("OK", "application/json", json.dumps(response, separators=(",", ":")))
 
 
 @app.get("/wmts", **params)
@@ -502,7 +506,7 @@ def _point(
                 for ix, value in enumerate(multi_point(assets, coordinates=(lng, lat)))
             ],
         }
-        return ("OK", "application/json", json.dumps(meta))
+        return ("OK", "application/json", json.dumps(meta, separators=(",", ":")))
 
 
 @app.get("/favicon.ico", methods=["GET"], cors=True, tag=["other"])
