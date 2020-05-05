@@ -1,49 +1,38 @@
 """cogeo_mosaic_tiler.handlers.app: handle request for cogeo-mosaic-tiler endpoints."""
 
-from typing import Any, BinaryIO, Tuple, Union
+from typing import Any, Tuple, Union
 
 import os
 import json
-import urllib
-
-import numpy
+import random
+import urllib.parse
+import warnings
 
 from boto3.session import Session as boto3_session
-from botocore.errorfactory import ClientError
 
 import mercantile
 import rasterio
 from rasterio.session import AWSSession
 
-from rio_color.utils import scale_dtype, to_math_type
-from rio_color.operations import parse_operations
-
+from rio_tiler.utils import render, geotiff_options
+from rio_tiler.reader import multi_point
 from rio_tiler.colormap import get_colormap
-from rio_tiler.io.cogeo import tile as cogeoTiler
 from rio_tiler.profiles import img_profiles
-from rio_tiler.utils import render, linear_rescale, geotiff_options
+from rio_tiler.io.cogeo import tile as cogeoTiler
 
 from rio_tiler_mosaic.mosaic import mosaic_tiler
 from rio_tiler_mosaic.methods import defaults
 
 from cogeo_mosaic import version as mosaic_version
-from cogeo_mosaic.utils import (
-    create_mosaic,
-    fetch_mosaic_definition,
-    fetch_and_find_assets,
-    fetch_and_find_assets_point,
-    get_point_values,
-)
+from cogeo_mosaic.mosaic import MosaicJSON
+from cogeo_mosaic.backends import MosaicBackend
+from cogeo_mosaic.backends.utils import get_hash
 
 from cogeo_mosaic_tiler import custom_methods
 from cogeo_mosaic_tiler.custom_cmaps import get_custom_cmap
 from cogeo_mosaic_tiler.ogc import wmts_template
-from cogeo_mosaic_tiler.utils import (
-    _aws_put_data,
-    _create_path,
-    _compress_gz_json,
-    get_hash,
-)
+
+from cogeo_mosaic_tiler.utils import _postprocess, _get_layer_names, _aws_head_object
 
 from lambda_proxy.proxy import API
 
@@ -62,25 +51,26 @@ PIXSEL_METHODS = {
 }
 app = API(name="cogeo-mosaic-tiler")
 
-
-def _get_layer_names(src_dst):
-    def _get_name(ix):
-        name = src_dst.descriptions[ix - 1]
-        if not name:
-            name = f"band{ix}"
-        return name
-
-    return [_get_name(ix) for ix in src_dst.indexes]
+params = dict(cors=True, payload_compression_method="gzip", binary_b64encode=True)
 
 
-@app.route(
-    "/create",
-    methods=["POST"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["mosaic"],
-)
+def _create_mosaic_path(
+    mosaicid: str,
+    bucket: str = os.environ["MOSAIC_DEF_BUCKET"],
+    prefix: str = os.environ.get("MOSAIC_PREFIX", "mosaics"),
+) -> str:
+    """
+    Translate mosaicid to s3 path.
+
+    mosaicid://{username}.{moisaicid}
+    mosaicid://{moisaicid}
+
+    """
+    key = f"{prefix}/{mosaicid}.json.gz" if prefix else f"{mosaicid}.json.gz"
+    return f"s3://{bucket}/{key}"
+
+
+@app.post("/create", tag=["mosaic"], **params)
 def _create(
     body: str,
     minzoom: Union[str, int] = None,
@@ -94,17 +84,24 @@ def _create(
     minzoom = int(minzoom) if isinstance(minzoom, str) else minzoom
     maxzoom = int(maxzoom) if isinstance(maxzoom, str) else maxzoom
     min_tile_cover = (
-        float(min_tile_cover) if isinstance(min_tile_cover, float) else min_tile_cover
+        float(min_tile_cover) if isinstance(min_tile_cover, str) else min_tile_cover
     )
 
-    mosaicid = get_hash(body=body, version=mosaic_version)
-
+    mosaicid = get_hash(
+        body=body,
+        minzoom=minzoom,
+        maxzoom=maxzoom,
+        min_tile_cover=min_tile_cover,
+        tile_cover_sort=tile_cover_sort,
+        version=mosaic_version,
+    )
     try:
-        mosaic_definition = fetch_mosaic_definition(_create_path(mosaicid))
-    except ClientError:
+        with MosaicBackend(_create_mosaic_path(mosaicid), client=s3_client) as mosaic:
+            meta = mosaic.metadata
+    except:  # noqa
         body = json.loads(body)
         with rasterio.Env(aws_session):
-            mosaic_definition = create_mosaic(
+            mosaic_definition = MosaicJSON.from_urls(
                 body,
                 minzoom=minzoom,
                 maxzoom=maxzoom,
@@ -112,11 +109,13 @@ def _create(
                 tile_cover_sort=tile_cover_sort,
             )
 
-            key = f"mosaics/{mosaicid}.json.gz"
-            bucket = os.environ["MOSAIC_DEF_BUCKET"]
-            _aws_put_data(
-                key, bucket, _compress_gz_json(mosaic_definition), client=s3_client
-            )
+        with MosaicBackend(
+            _create_mosaic_path(mosaicid),
+            mosaic_def=mosaic_definition,
+            client=s3_client,
+        ) as mosaic:
+            mosaic.write()
+            meta = mosaic.metadata
 
     if tile_format in ["pbf", "mvt"]:
         tile_url = f"{app.host}/{mosaicid}/{{z}}/{{x}}/{{y}}.{tile_format}"
@@ -132,168 +131,111 @@ def _create(
         tile_url += f"?{qs}"
 
     meta = {
-        "bounds": mosaic_definition["bounds"],
-        "center": mosaic_definition["center"],
-        "maxzoom": mosaic_definition["maxzoom"],
-        "minzoom": mosaic_definition["minzoom"],
+        "bounds": meta["bounds"],
+        "center": meta["center"],
+        "maxzoom": meta["maxzoom"],
+        "minzoom": meta["minzoom"],
         "name": mosaicid,
         "tilejson": "2.1.0",
         "tiles": [tile_url],
     }
 
-    return ("OK", "application/json", json.dumps(meta))
+    return ("OK", "application/json", json.dumps(meta, separators=(",", ":")))
 
 
-@app.route(
-    "/add",
-    methods=["POST"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["mosaic"],
-)
-def _add(body: str, mosaicid: str = None) -> Tuple[str, str, str]:
-    # TODO: Need validation
-    mosaic_definition = json.loads(body)
+@app.post("/add", tag=["mosaic"], **params)
+def _add(body: str, mosaicid: str) -> Tuple:
+    if _aws_head_object(_create_mosaic_path(mosaicid), client=s3_client):
+        return ("NOK", "text/plain", f"Mosaic: {mosaicid} already exist.")
 
-    if not mosaicid:
-        mosaicid = get_hash(body=body)
-
-    key = f"mosaics/{mosaicid}.json.gz"
-    bucket = os.environ["MOSAIC_DEF_BUCKET"]
-    _aws_put_data(key, bucket, _compress_gz_json(mosaic_definition), client=s3_client)
+    mosaic_definition = MosaicJSON(**json.loads(body))
+    with MosaicBackend(
+        _create_mosaic_path(mosaicid), mosaic_def=mosaic_definition
+    ) as mosaic:
+        mosaic.write()
 
     return (
         "OK",
         "application/json",
-        json.dumps({"id": mosaicid, "url": f"s3://{bucket}/{key}"}),
+        json.dumps({"id": mosaicid, "status": "READY"}, separators=(",", ":")),
     )
 
 
-@app.route(
-    "/info",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["metadata"],
-)
-@app.route(
-    "/<regex([0-9A-Fa-f]{56}):mosaicid>/info",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["metadata"],
-)
-def _info(mosaicid: str = None, url: str = None) -> Tuple[str, str, str]:
+@app.get("/info", tag=["metadata"], **params)
+@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/info", tag=["metadata"], **params)
+def _info(mosaicid: str = None, url: str = None) -> Tuple:
     """Handle /info requests."""
-    if mosaicid:
-        url = _create_path(mosaicid)
-    elif url is None:
-        return ("NOK", "text/plain", "Missing 'URL' parameter")
+    if not mosaicid and not url:
+        return ("NOK", "text/plain", "Missing 'MosaicID or URL' parameter")
 
-    mosaic_def = fetch_mosaic_definition(url)
+    mosaic_path = _create_mosaic_path(mosaicid) if mosaicid else url
+    with MosaicBackend(mosaic_path) as mosaic:
+        meta = mosaic.metadata
+        response = {
+            "bounds": meta["bounds"],
+            "center": meta["center"],
+            "maxzoom": meta["maxzoom"],
+            "minzoom": meta["minzoom"],
+            "name": mosaicid if mosaicid else url,
+        }
 
-    bounds = mosaic_def["bounds"]
-    center = [
-        (bounds[0] + bounds[2]) / 2,
-        (bounds[1] + bounds[3]) / 2,
-        mosaic_def["minzoom"],
-    ]
-    quadkeys = list(mosaic_def["tiles"].keys())
+        if not mosaic_path.startswith("dynamodb://"):
+            mosaic_quadkeys = set(mosaic._quadkeys)
+            tile = mercantile.quadkey_to_tile(random.sample(mosaic_quadkeys, 1)[0])
+            assets = mosaic.tile(*tile)
+            with rasterio.open(assets[0]) as src_dst:
+                layer_names = _get_layer_names(src_dst)
+                dtype = src_dst.dtypes[0]
 
-    # read layernames from the first file
-    src_path = mosaic_def["tiles"][quadkeys[0]][0]
-    with rasterio.open(src_path) as src_dst:
-        layer_names = _get_layer_names(src_dst)
-        dtype = src_dst.dtypes[0]
+            response["quadkeys"] = list(mosaic_quadkeys)
+            response["layers"] = layer_names
+            response["dtype"] = dtype
+        else:
+            warnings.warn(
+                "Cannot retrieve 'quadkeys,layers and dtype' from dynamoDB mosaic."
+            )
 
-    meta = {
-        "bounds": bounds,
-        "center": center,
-        "maxzoom": mosaic_def["maxzoom"],
-        "minzoom": mosaic_def["minzoom"],
-        "name": mosaicid if mosaicid else url,
-        "quadkeys": quadkeys,
-        "layers": layer_names,
-        "dtype": dtype,
-    }
-    return ("OK", "application/json", json.dumps(meta))
+        return ("OK", "application/json", json.dumps(response, separators=(",", ":")))
 
 
-@app.route(
-    "/geojson",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["metadata"],
-)
-@app.route(
-    "/<regex([0-9A-Fa-f]{56}):mosaicid>/geojson",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["metadata"],
-)
-def _geojson(mosaicid: str = None, url: str = None) -> Tuple[str, str, str]:
+@app.get("/geojson", tag=["metadata"], **params)
+@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/geojson", tag=["metadata"], **params)
+def _geojson(mosaicid: str = None, url: str = None) -> Tuple:
     """Handle /geojson requests."""
-    if mosaicid:
-        url = _create_path(mosaicid)
-    elif url is None:
-        return ("NOK", "text/plain", "Missing 'URL' parameter")
+    if not mosaicid and not url:
+        return ("NOK", "text/plain", "Missing 'MosaicID or URL' parameter")
 
-    mosaic_def = fetch_mosaic_definition(url)
-    geojson = {
-        "type": "FeatureCollection",
-        "features": [
-            mercantile.feature(mercantile.quadkey_to_tile(qk), props=dict(files=files))
-            for qk, files in mosaic_def["tiles"].items()
-        ],
-    }
+    mosaic_path = _create_mosaic_path(mosaicid) if mosaicid else url
+    with MosaicBackend(mosaic_path) as mosaic:
+        geojson = {
+            "type": "FeatureCollection",
+            "features": [
+                mercantile.feature(
+                    mercantile.quadkey_to_tile(qk), props=dict(files=files)
+                )
+                for qk, files in mosaic.mosaic_def.tiles.items()
+            ],
+        }
 
-    return ("OK", "application/json", json.dumps(geojson))
+    return ("OK", "application/json", json.dumps(geojson, separators=(",", ":")))
 
 
-@app.route(
-    "/tilejson.json",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
-@app.route(
-    "/<regex([0-9A-Fa-f]{56}):mosaicid>/tilejson.json",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
+params["tag"] = ["tiles"]
+
+
+@app.get("/tilejson.json", **params)
+@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/tilejson.json", **params)
 def _tilejson(
     mosaicid: str = None,
     url: str = None,
     tile_scale: int = 1,
     tile_format: str = None,
     **kwargs: Any,
-) -> Tuple[str, str, str]:
+) -> Tuple:
     """Handle /tilejson.json requests."""
-    if mosaicid:
-        url = _create_path(mosaicid)
-    elif url is None:
-        return ("NOK", "text/plain", "Missing 'URL' parameter")
+    if not mosaicid and not url:
+        return ("NOK", "text/plain", "Missing 'MosaicID or URL' parameter")
 
-    mosaic_def = fetch_mosaic_definition(url)
-
-    bounds = mosaic_def["bounds"]
-    center = [
-        (bounds[0] + bounds[2]) / 2,
-        (bounds[1] + bounds[3]) / 2,
-        mosaic_def["minzoom"],
-    ]
     if not mosaicid:
         kwargs.update(dict(url=url))
         host = app.host
@@ -311,34 +253,23 @@ def _tilejson(
     if qs:
         tile_url += f"?{qs}"
 
-    meta = {
-        "bounds": bounds,
-        "center": center,
-        "maxzoom": mosaic_def["maxzoom"],
-        "minzoom": mosaic_def["minzoom"],
-        "name": url,
-        "tilejson": "2.1.0",
-        "tiles": [tile_url],
-    }
-    return ("OK", "application/json", json.dumps(meta))
+    mosaic_path = _create_mosaic_path(mosaicid) if mosaicid else url
+    with MosaicBackend(mosaic_path) as mosaic:
+        meta = mosaic.metadata
+        response = {
+            "bounds": meta["bounds"],
+            "center": meta["center"],
+            "maxzoom": meta["maxzoom"],
+            "minzoom": meta["minzoom"],
+            "name": mosaicid if mosaicid else url,
+            "tilejson": "2.1.0",
+            "tiles": [tile_url],
+        }
+    return ("OK", "application/json", json.dumps(response, separators=(",", ":")))
 
 
-@app.route(
-    "/wmts",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
-@app.route(
-    "/<regex([0-9A-Fa-f]{56}):mosaicid>/wmts",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
+@app.get("/wmts", **params)
+@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/wmts", **params)
 def _wmts(
     mosaicid: str = None,
     url: str = None,
@@ -346,58 +277,49 @@ def _wmts(
     tile_scale: int = 1,
     title: str = "Cloud Optimizied GeoTIFF Mosaic",
     **kwargs: Any,
-) -> Tuple[str, str, str]:
+) -> Tuple:
     """Handle /wmts requests."""
-    if mosaicid:
-        url = _create_path(mosaicid)
-    elif url is None:
-        return ("NOK", "text/plain", "Missing 'URL' parameter")
+    if not mosaicid and not url:
+        return ("NOK", "text/plain", "Missing 'MosaicID or URL' parameter")
 
     if tile_scale is not None and isinstance(tile_scale, str):
         tile_scale = int(tile_scale)
 
-    mosaic_def = fetch_mosaic_definition(url)
+    if not mosaicid:
+        kwargs.update(dict(url=url))
+        host = app.host
+    else:
+        host = f"{app.host}/{mosaicid}"
 
-    kwargs.pop("SERVICE", None)
-    kwargs.pop("REQUEST", None)
-    kwargs.update(dict(url=url))
     query_string = urllib.parse.urlencode(list(kwargs.items()))
     query_string = query_string.replace(
         "&", "&amp;"
     )  # & is an invalid character in XML
+    kwargs.pop("SERVICE", None)
+    kwargs.pop("REQUEST", None)
 
-    return (
-        "OK",
-        "application/xml",
-        wmts_template(
-            f"{app.host}",
-            query_string,
-            minzoom=mosaic_def["minzoom"],
-            maxzoom=mosaic_def["maxzoom"],
-            bounds=mosaic_def["bounds"],
-            tile_scale=tile_scale,
-            tile_format=tile_format,
-            title=title,
-        ),
-    )
+    mosaic_path = _create_mosaic_path(mosaicid) if mosaicid else url
+    with MosaicBackend(mosaic_path) as mosaic:
+        meta = mosaic.metadata
+
+        return (
+            "OK",
+            "application/xml",
+            wmts_template(
+                host,
+                query_string,
+                minzoom=meta["minzoom"],
+                maxzoom=meta["maxzoom"],
+                bounds=meta["bounds"],
+                tile_scale=tile_scale,
+                tile_format=tile_format,
+                title=title,
+            ),
+        )
 
 
-@app.route(
-    "/<int:z>/<int:x>/<int:y>.pbf",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
-@app.route(
-    "/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>.pbf",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
+@app.get("/<int:z>/<int:x>/<int:y>.pbf", **params)
+@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>.pbf", **params)
 def _mvt(
     mosaicid: str = None,
     z: int = None,
@@ -408,18 +330,18 @@ def _mvt(
     pixel_selection: str = "first",
     feature_type: str = "point",
     resampling_method: str = "nearest",
-) -> Tuple[str, str, BinaryIO]:
+) -> Tuple:
     """Handle MVT requests."""
-    from rio_tiler_mvt.mvt import encoder as mvtEncoder
+    from rio_tiler_mvt.mvt import encoder as mvtEncoder  # noqa
 
-    if mosaicid:
-        url = _create_path(mosaicid)
-    elif url is None:
-        return ("NOK", "text/plain", "Missing 'URL' parameter")
+    if not mosaicid and not url:
+        return ("NOK", "text/plain", "Missing 'MosaicID or URL' parameter")
 
-    assets = fetch_and_find_assets(url, x, y, z)
-    if not assets:
-        return ("EMPTY", "text/plain", f"No assets found for tile {z}-{x}-{y}")
+    mosaic_path = _create_mosaic_path(mosaicid) if mosaicid else url
+    with MosaicBackend(mosaic_path) as mosaic:
+        assets = mosaic.tile(x, y, z)
+        if not assets:
+            return ("EMPTY", "text/plain", f"No assets found for tile {z}-{x}-{y}")
 
     if tile_size is not None and isinstance(tile_size, str):
         tile_size = int(tile_size)
@@ -453,104 +375,24 @@ def _mvt(
                 tile,
                 mask,
                 band_descriptions,
-                os.path.basename(url),
+                mosaicid if mosaicid else os.path.basename(url),
                 feature_type=feature_type,
             ),
         )
 
 
-def _postprocess(
-    tile: numpy.ndarray,
-    mask: numpy.ndarray,
-    rescale: str = None,
-    color_formula: str = None,
-) -> numpy.ndarray:
-    """Tile data post processing."""
-    if rescale:
-        rescale_arr = (tuple(map(float, rescale.split(","))),) * tile.shape[0]
-        for bdx in range(tile.shape[0]):
-            tile[bdx] = numpy.where(
-                mask,
-                linear_rescale(
-                    tile[bdx], in_range=rescale_arr[bdx], out_range=[0, 255]
-                ),
-                0,
-            )
-        tile = tile.astype(numpy.uint8)
-
-    if color_formula:
-        # make sure one last time we don't have
-        # negative value before applying color formula
-        tile[tile < 0] = 0
-        for ops in parse_operations(color_formula):
-            tile = scale_dtype(ops(to_math_type(tile)), numpy.uint8)
-
-    return tile
-
-
-@app.route(
-    "/<int:z>/<int:x>/<int:y>.<ext>",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
-@app.route(
-    "/<int:z>/<int:x>/<int:y>",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
-@app.route(
-    "/<int:z>/<int:x>/<int:y>@<int:scale>x.<ext>",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
-@app.route(
-    "/<int:z>/<int:x>/<int:y>@<int:scale>x",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
-@app.route(
-    "/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>.<ext>",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
-@app.route(
-    "/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
-@app.route(
+@app.get("/<int:z>/<int:x>/<int:y>.<ext>", **params)
+@app.get("/<int:z>/<int:x>/<int:y>", **params)
+@app.get("/<int:z>/<int:x>/<int:y>@<int:scale>x.<ext>", **params)
+@app.get("/<int:z>/<int:x>/<int:y>@<int:scale>x", **params)
+@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>.<ext>", **params)
+@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>", **params)
+@app.get(
     "/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>@<int:scale>x.<ext>",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
+    **params,
 )
-@app.route(
-    "/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>@<int:scale>x",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
+@app.get(
+    "/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>@<int:scale>x", **params
 )
 def _img(
     mosaicid: str = None,
@@ -566,16 +408,16 @@ def _img(
     color_map: str = None,
     pixel_selection: str = "first",
     resampling_method: str = "nearest",
-) -> Tuple[str, str, BinaryIO]:
+) -> Tuple:
     """Handle tile requests."""
-    if mosaicid:
-        url = _create_path(mosaicid)
-    elif url is None:
-        return ("NOK", "text/plain", "Missing 'URL' parameter")
+    if not mosaicid and not url:
+        return ("NOK", "text/plain", "Missing 'MosaicID or URL' parameter")
 
-    assets = fetch_and_find_assets(url, x, y, z)
-    if not assets:
-        return ("EMPTY", "text/plain", f"No assets found for tile {z}-{x}-{y}")
+    mosaic_path = _create_mosaic_path(mosaicid) if mosaicid else url
+    with MosaicBackend(mosaic_path) as mosaic:
+        assets = mosaic.tile(x, y, z)
+        if not assets:
+            return ("EMPTY", "text/plain", f"No assets found for tile {z}-{x}-{y}")
 
     if indexes:
         indexes = list(map(int, indexes.split(",")))
@@ -628,30 +470,14 @@ def _img(
     )
 
 
-@app.route(
-    "/point",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
-@app.route(
-    "/<regex([0-9A-Fa-f]{56}):mosaicid>/point",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
+@app.route("/point", **params)
+@app.route("/<regex([0-9A-Fa-f]{56}):mosaicid>/point", **params)
 def _point(
     mosaicid: str = None, lng: float = None, lat: float = None, url: str = None
 ) -> Tuple[str, str, str]:
     """Handle point requests."""
-    if mosaicid:
-        url = _create_path(mosaicid)
-    elif url is None:
-        return ("NOK", "text/plain", "Missing 'URL' parameter")
+    if not mosaicid and not url:
+        return ("NOK", "text/plain", "Missing 'MosaicID or URL' parameter")
 
     if not lat or not lng:
         return ("NOK", "text/plain", "Missing 'Lon/Lat' parameter")
@@ -662,16 +488,28 @@ def _point(
     if isinstance(lat, str):
         lat = float(lat)
 
-    assets = fetch_and_find_assets_point(url, lng, lat)
-    if not assets:
-        return ("EMPTY", "text/plain", f"No assets found for lat/lng ({lat}, {lng})")
+    mosaic_path = _create_mosaic_path(mosaicid) if mosaicid else url
+    with MosaicBackend(mosaic_path) as mosaic:
+        assets = mosaic.point(lng, lat)
+        if not assets:
+            return (
+                "EMPTY",
+                "text/plain",
+                f"No assets found for lat/lng ({lat}, {lng})",
+            )
 
     with rasterio.Env(aws_session):
-        meta = {"coordinates": [lng, lat], "values": get_point_values(assets, lng, lat)}
-        return ("OK", "application/json", json.dumps(meta))
+        meta = {
+            "coordinates": [lng, lat],
+            "values": [
+                {"asset": assets[ix], "values": value}
+                for ix, value in enumerate(multi_point(assets, coordinates=(lng, lat)))
+            ],
+        }
+        return ("OK", "application/json", json.dumps(meta, separators=(",", ":")))
 
 
-@app.route("/favicon.ico", methods=["GET"], cors=True, tag=["other"])
+@app.get("/favicon.ico", methods=["GET"], cors=True, tag=["other"])
 def favicon() -> Tuple[str, str, str]:
     """Favicon."""
     return ("EMPTY", "text/plain", "")
