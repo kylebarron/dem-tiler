@@ -152,7 +152,7 @@ def _add(body: str, mosaicid: str) -> Tuple:
     with MosaicBackend(
         _create_mosaic_path(mosaicid), mosaic_def=mosaic_definition
     ) as mosaic:
-        mosaic.write(gzip=True)
+        mosaic.write()
 
     return ("OK", "application/json", json.dumps({"id": mosaicid, "status": "READY"}))
 
@@ -466,22 +466,8 @@ def _img(
     )
 
 
-@app.route(
-    "/point",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
-@app.route(
-    "/<regex([0-9A-Fa-f]{56}):mosaicid>/point",
-    methods=["GET"],
-    cors=True,
-    payload_compression_method="gzip",
-    binary_b64encode=True,
-    tag=["tiles"],
-)
+@app.route("/point", **params)
+@app.route("/<regex([0-9A-Fa-f]{56}):mosaicid>/point", **params)
 def _point(
     mosaicid: str = None, lng: float = None, lat: float = None, url: str = None
 ) -> Tuple[str, str, str]:
