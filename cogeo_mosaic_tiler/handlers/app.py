@@ -96,7 +96,7 @@ def _create(
         version=mosaic_version,
     )
     try:
-        with MosaicBackend(_create_mosaic_path(mosaicid)) as mosaic:
+        with MosaicBackend(_create_mosaic_path(mosaicid), client=s3_client) as mosaic:
             meta = mosaic.metadata
     except:  # noqa
         body = json.loads(body)
@@ -145,7 +145,7 @@ def _create(
 
 @app.post("/add", tag=["mosaic"], **params)
 def _add(body: str, mosaicid: str) -> Tuple:
-    if _aws_head_object(_create_mosaic_path(mosaicid)):
+    if _aws_head_object(_create_mosaic_path(mosaicid), client=s3_client):
         return ("NOK", "text/plain", f"Mosaic: {mosaicid} already exist.")
 
     mosaic_definition = MosaicJSON(**json.loads(body))
