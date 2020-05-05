@@ -1,6 +1,6 @@
 """OCG wmts template."""
 
-from typing import Tuple
+from typing import List
 
 
 def gdal_wms_template(
@@ -73,7 +73,7 @@ def wmts_template(
     query_string: str = "",
     minzoom: int = 0,
     maxzoom: int = 25,
-    bounds: Tuple = [-180, -85.051129, 85.051129, 180],
+    bounds: List = [-180, -85.051129, 85.051129, 180],
     tile_scale: int = 1,
     tile_format: str = "png",
     title: str = "Cloud Optimizied GeoTIFF Mosaic",
@@ -110,7 +110,7 @@ def wmts_template(
     content_type = f"image/{media_type}"
     tilesize = 256 * tile_scale
 
-    tileMatrix = []
+    tileMatrixList = []
     for zoom in range(minzoom, maxzoom + 1):
         tm = f"""<TileMatrix>
             <ows:Identifier>{zoom}</ows:Identifier>
@@ -121,8 +121,8 @@ def wmts_template(
             <MatrixWidth>{2 ** zoom}</MatrixWidth>
             <MatrixHeight>{2 ** zoom}</MatrixHeight>
         </TileMatrix>"""
-        tileMatrix.append(tm)
-    tileMatrix = "\n".join(tileMatrix)
+        tileMatrixList.append(tm)
+    tileMatrix = "\n".join(tileMatrixList)
 
     xml = f"""<Capabilities
         xmlns="http://www.opengis.net/wmts/1.0"

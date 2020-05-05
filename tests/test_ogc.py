@@ -1,8 +1,8 @@
 """tests cogeo_mosaic.ogc."""
 
+import rasterio
 from click.testing import CliRunner
 
-import rasterio
 from cogeo_mosaic_tiler import ogc
 
 

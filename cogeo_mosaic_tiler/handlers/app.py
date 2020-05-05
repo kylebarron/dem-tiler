@@ -1,40 +1,33 @@
 """cogeo_mosaic_tiler.handlers.app: handle request for cogeo-mosaic-tiler endpoints."""
 
-from typing import Any, Tuple, Union
-
-import os
 import json
+import os
 import random
 import urllib.parse
 import warnings
-
-from boto3.session import Session as boto3_session
+from typing import Any, Optional, Sequence, Tuple, Union
 
 import mercantile
 import rasterio
+from boto3.session import Session as boto3_session
+from lambda_proxy.proxy import API
 from rasterio.session import AWSSession
-
-from rio_tiler.utils import render, geotiff_options
-from rio_tiler.reader import multi_point
 from rio_tiler.colormap import get_colormap
-from rio_tiler.profiles import img_profiles
 from rio_tiler.io.cogeo import tile as cogeoTiler
-
-from rio_tiler_mosaic.mosaic import mosaic_tiler
+from rio_tiler.profiles import img_profiles
+from rio_tiler.reader import multi_point
+from rio_tiler.utils import geotiff_options, render
 from rio_tiler_mosaic.methods import defaults
+from rio_tiler_mosaic.mosaic import mosaic_tiler
 
 from cogeo_mosaic import version as mosaic_version
-from cogeo_mosaic.mosaic import MosaicJSON
 from cogeo_mosaic.backends import MosaicBackend
 from cogeo_mosaic.backends.utils import get_hash
-
+from cogeo_mosaic.mosaic import MosaicJSON
 from cogeo_mosaic_tiler import custom_methods
 from cogeo_mosaic_tiler.custom_cmaps import get_custom_cmap
 from cogeo_mosaic_tiler.ogc import wmts_template
-
-from cogeo_mosaic_tiler.utils import _postprocess, _get_layer_names, _aws_head_object
-
-from lambda_proxy.proxy import API
+from cogeo_mosaic_tiler.utils import _aws_head_object, _get_layer_names, _postprocess
 
 session = boto3_session()
 s3_client = session.client("s3")
@@ -402,7 +395,7 @@ def _img(
     scale: int = 1,
     ext: str = None,
     url: str = None,
-    indexes: str = None,
+    indexes: Optional[Sequence[int]] = None,
     rescale: str = None,
     color_ops: str = None,
     color_map: str = None,
@@ -419,7 +412,7 @@ def _img(
         if not assets:
             return ("EMPTY", "text/plain", f"No assets found for tile {z}-{x}-{y}")
 
-    if indexes:
+    if indexes is not None and isinstance(indexes, str):
         indexes = list(map(int, indexes.split(",")))
 
     tilesize = 256 * scale
