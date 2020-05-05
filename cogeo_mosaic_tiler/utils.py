@@ -3,13 +3,10 @@
 from urllib.parse import urlparse
 
 import numpy
-
 from boto3.session import Session as boto3_session
 from botocore.exceptions import ClientError
-
-from rio_color.utils import scale_dtype, to_math_type
 from rio_color.operations import parse_operations
-
+from rio_color.utils import scale_dtype, to_math_type
 from rio_tiler.utils import linear_rescale
 
 

@@ -1,19 +1,17 @@
 """tests cogeo_mosaic_tiler.handlers.app."""
 
-from typing import Any
-
+import base64
+import json
 import os
 import re
-import json
-import base64
 import urllib
+from typing import Any
 from unittest.mock import patch
 
 import pytest
 
 from cogeo_mosaic.backends.file import FileBackend
 from cogeo_mosaic.mosaic import MosaicJSON
-
 
 asset1 = os.path.join(os.path.dirname(__file__), "fixtures", "cog1.tif")
 asset2 = os.path.join(os.path.dirname(__file__), "fixtures", "cog2.tif")
