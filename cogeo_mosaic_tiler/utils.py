@@ -1,51 +1,67 @@
-"""cogeo_mosaic.utils: utility functions."""
+"""cogeo-mosaic-tiler: utility functions."""
 
-from typing import Any, Dict, BinaryIO
+from urllib.parse import urlparse
 
-import os
-import zlib
-import json
-import logging
-import hashlib
+import numpy
 
 from boto3.session import Session as boto3_session
+from botocore.exceptions import ClientError
+
+from rio_color.utils import scale_dtype, to_math_type
+from rio_color.operations import parse_operations
+
+from rio_tiler.utils import linear_rescale
 
 
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+def _postprocess(
+    tile: numpy.ndarray,
+    mask: numpy.ndarray,
+    rescale: str = None,
+    color_formula: str = None,
+) -> numpy.ndarray:
+    """Tile data post processing."""
+    if rescale:
+        rescale_arr = (tuple(map(float, rescale.split(","))),) * tile.shape[0]
+        for bdx in range(tile.shape[0]):
+            tile[bdx] = numpy.where(
+                mask,
+                linear_rescale(
+                    tile[bdx], in_range=rescale_arr[bdx], out_range=[0, 255]
+                ),
+                0,
+            )
+        tile = tile.astype(numpy.uint8)
+
+    if color_formula:
+        # make sure one last time we don't have
+        # negative value before applying color formula
+        tile[tile < 0] = 0
+        for ops in parse_operations(color_formula):
+            tile = scale_dtype(ops(to_math_type(tile)), numpy.uint8)
+
+    return tile
 
 
-def _compress_gz_json(data):
-    gzip_compress = zlib.compressobj(9, zlib.DEFLATED, zlib.MAX_WBITS | 16)
+def _get_layer_names(src_dst):
+    def _get_name(ix):
+        name = src_dst.descriptions[ix - 1]
+        if not name:
+            name = f"band{ix}"
+        return name
 
-    return (
-        gzip_compress.compress(json.dumps(data).encode("utf-8")) + gzip_compress.flush()
-    )
+    return [_get_name(ix) for ix in src_dst.indexes]
 
 
-def _aws_put_data(
-    key: str,
-    bucket: str,
-    body: BinaryIO,
-    options: Dict = {},
-    client: boto3_session.client = None,
-) -> str:
+def _aws_head_object(url: str, client: boto3_session.client = None) -> bool:
     if not client:
         session = boto3_session()
         client = session.client("s3")
-    client.put_object(Bucket=bucket, Key=key, Body=body, **options)
-    return key
 
+    parsed = urlparse(url)
+    bucket = parsed.netloc
+    key = parsed.path.strip("/")
 
-def get_hash(**kwargs: Any) -> str:
-    """Create hash from a dict."""
-    return hashlib.sha224(
-        json.dumps(kwargs, sort_keys=True, default=str).encode()
-    ).hexdigest()
-
-
-def _create_path(mosaicid: str) -> str:
-    """Get Mosaic definition info."""
-    key = f"mosaics/{mosaicid}.json.gz"
-    bucket = os.environ["MOSAIC_DEF_BUCKET"]
-    return f"s3://{bucket}/{key}"
+    try:
+        return client.head_object(Bucket=bucket, Key=key)
+    except ClientError:
+        return False

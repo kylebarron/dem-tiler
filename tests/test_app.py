@@ -1,23 +1,76 @@
 """tests cogeo_mosaic_tiler.handlers.app."""
 
+from typing import Any
+
 import os
 import re
 import json
 import base64
 import urllib
+from unittest.mock import patch
 
 import pytest
-from mock import patch
-from botocore.exceptions import ClientError
 
-from cogeo_mosaic.utils import create_mosaic
-from cogeo_mosaic import version
+from cogeo_mosaic.backends.file import FileBackend
+from cogeo_mosaic.mosaic import MosaicJSON
 
 
 asset1 = os.path.join(os.path.dirname(__file__), "fixtures", "cog1.tif")
 asset2 = os.path.join(os.path.dirname(__file__), "fixtures", "cog2.tif")
-mosaic_content = create_mosaic([asset1, asset2])
+mosaic_content = MosaicJSON.from_urls([asset1, asset2])
+mosaic_dict = mosaic_content.dict(exclude_none=True)
 request_json = os.path.join(os.path.dirname(__file__), "fixtures", "request.json")
+
+
+class MosaicMockReadRaise(FileBackend):
+    """Mock."""
+
+    def __init__(self, *args, mosaic_def: MosaicJSON = None, **kwargs: Any):
+        """Initialize FileBackend."""
+        assert args[0].startswith("s3://my-bucket")
+
+        if mosaic_def is not None:
+            self.mosaic_def = mosaic_def
+        else:
+            raise Exception("Nope Nope Nope")
+
+    def write(self, *args, **kwargs):
+        """Write."""
+        pass
+
+
+class MosaicMock(FileBackend):
+    """Mock."""
+
+    def __init__(self, *args, mosaic_def: MosaicJSON = None, **kwargs: Any):
+        """Initialize FileBackend."""
+        assert args[0].startswith("s3://my-bucket")
+
+        if mosaic_def is not None:
+            self.mosaic_def = mosaic_def
+        else:
+            self.mosaic_def = mosaic_content
+
+    def write(self, *args, **kwargs):
+        """Write."""
+        pass
+
+
+class MosaicMockDB(FileBackend):
+    """Mock."""
+
+    def __init__(self, *args, mosaic_def: MosaicJSON = None, **kwargs: Any):
+        """Initialize FileBackend."""
+        assert args[0].startswith("dynamodb://")
+
+        if mosaic_def is not None:
+            self.mosaic_def = mosaic_def
+        else:
+            self.mosaic_def = mosaic_content
+
+    def write(self, *args, **kwargs):
+        """Write."""
+        pass
 
 
 @pytest.fixture(autouse=True)
@@ -35,6 +88,16 @@ def testing_env_var(monkeypatch):
 
 
 @pytest.fixture()
+def app():
+    """cogeo-mosaic-tiler handler fixture."""
+    # HACK: We import the app in a test function to make sure the boto3_session uses
+    # the monkeypatched env
+    from cogeo_mosaic_tiler.handlers.app import app
+
+    return app
+
+
+@pytest.fixture()
 def event():
     """Event fixture."""
     return {
@@ -46,22 +109,9 @@ def event():
     }
 
 
-def test_version(event):
-    """Test version."""
-    # HACK: We import the app in a test function to make sure the boto3_session uses
-    # the monkeypatched env
-    from cogeo_mosaic_tiler.handlers import app
-
-    assert app.mosaic_version == version
-
-
-def test_favicon(event):
+def test_favicon(app, event):
     """Test /favicon.ico route."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
     event["path"] = "/favicon.ico"
-    event["httpMethod"] = "GET"
-
     resp = {
         "body": "",
         "headers": {
@@ -76,56 +126,54 @@ def test_favicon(event):
     assert res == resp
 
 
-@patch("cogeo_mosaic_tiler.handlers.app._aws_put_data")
-def test_add_mosaic(aws_put_data, event):
+@patch("cogeo_mosaic_tiler.handlers.app._aws_head_object")
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_add_mosaic(backend, head, app, event):
     """Test /add route."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
     event["path"] = "/add"
     event["httpMethod"] = "POST"
-    event["body"] = json.dumps(mosaic_content).encode()
-
+    event["body"] = json.dumps(mosaic_dict).encode()
+    event["queryStringParameters"] = dict(
+        mosaicid="b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516"
+    )
     headers = {
         "Access-Control-Allow-Credentials": "true",
         "Access-Control-Allow-Methods": "POST",
         "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
     }
-    aws_put_data.return_value = True
+    backend.side_effect = MosaicMock
+    head.return_value = False
 
     res = app(event, {})
     assert res["headers"] == headers
     assert res["statusCode"] == 200
-    aws_put_data.assert_called()
-    aws_put_data.reset_mock()
+    body = json.loads(res["body"])
+    assert body["id"] == "b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516"
+    assert body["status"] == "READY"
+    backend.assert_called_once()
+    backend.reset_mock()
 
-    event["isBase64Encoded"] = "true"
-    event["body"] = base64.b64encode(json.dumps(mosaic_content).encode()).decode(
-        "utf-8"
+    headers = {
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "POST",
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "text/plain",
+    }
+    head.return_value = True
+    res = app(event, {})
+    assert res["headers"] == headers
+    assert res["statusCode"] == 400
+    assert (
+        res["body"]
+        == "Mosaic: b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516 already exist."
     )
-    aws_put_data.return_value = True
-
-    res = app(event, {})
-    assert res["headers"] == headers
-    assert res["statusCode"] == 200
-    aws_put_data.assert_called()
-    aws_put_data.reset_mock()
-
-    event["queryStringParameters"] = dict(
-        mosaicid="b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516"
-    )
-    res = app(event, {})
-    assert res["headers"] == headers
-    assert res["statusCode"] == 200
-    aws_put_data.assert_called()
+    backend.assert_not_called()
 
 
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_mosaic_definition")
-@patch("cogeo_mosaic_tiler.handlers.app._aws_put_data")
-def test_create_mosaic(aws_put_data, get_mosaic, event):
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_create_mosaic(backend, app, event):
     """Test /create route."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
     event["path"] = "/create"
     event["httpMethod"] = "POST"
     event["isBase64Encoded"] = "true"
@@ -140,10 +188,7 @@ def test_create_mosaic(aws_put_data, get_mosaic, event):
         "Content-Type": "application/json",
     }
 
-    get_mosaic.side_effect = ClientError(
-        {"Error": {"Code": "404", "Message": "Not Found"}}, "get_object"
-    )
-    aws_put_data.return_value = True
+    backend.side_effect = MosaicMockReadRaise
 
     res = app(event, {})
     assert res["headers"] == headers
@@ -156,15 +201,12 @@ def test_create_mosaic(aws_put_data, get_mosaic, event):
     url_info = urllib.parse.urlparse(tileurl)
     assert url_info.netloc == "somewhere-over-the-rainbow.com"
     assert re.match(r"/[0-9A-Fa-f]{56}/{z}/{x}/{y}@1x", url_info.path)
-    aws_put_data.assert_called()
+    assert backend.call_count == 2
 
 
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_mosaic_definition")
-@patch("cogeo_mosaic_tiler.handlers.app._aws_put_data")
-def test_create_mosaicPNG(aws_put_data, get_mosaic, event):
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_create_mosaicPNG(backend, app, event):
     """Test /create route."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
     event["path"] = "/create"
     event["httpMethod"] = "POST"
     event["isBase64Encoded"] = "true"
@@ -180,10 +222,7 @@ def test_create_mosaicPNG(aws_put_data, get_mosaic, event):
         "Content-Type": "application/json",
     }
 
-    get_mosaic.side_effect = ClientError(
-        {"Error": {"Code": "404", "Message": "Not Found"}}, "get_object"
-    )
-    aws_put_data.return_value = True
+    backend.side_effect = MosaicMock
 
     res = app(event, {})
     assert res["headers"] == headers
@@ -196,15 +235,12 @@ def test_create_mosaicPNG(aws_put_data, get_mosaic, event):
     url_info = urllib.parse.urlparse(tileurl)
     assert url_info.netloc == "somewhere-over-the-rainbow.com"
     assert re.match(r"/[0-9A-Fa-f]{56}/{z}/{x}/{y}@1x.png", url_info.path)
-    aws_put_data.assert_called()
+    backend.assert_called_once()
 
 
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_mosaic_definition")
-@patch("cogeo_mosaic_tiler.handlers.app._aws_put_data")
-def test_create_mosaicMVT(aws_put_data, get_mosaic, event):
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_create_mosaicMVT(backend, app, event):
     """Test /create route."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
     event["path"] = "/create"
     event["httpMethod"] = "POST"
     event["isBase64Encoded"] = "true"
@@ -220,10 +256,7 @@ def test_create_mosaicMVT(aws_put_data, get_mosaic, event):
         "Content-Type": "application/json",
     }
 
-    get_mosaic.side_effect = ClientError(
-        {"Error": {"Code": "404", "Message": "Not Found"}}, "get_object"
-    )
-    aws_put_data.return_value = True
+    backend.side_effect = MosaicMock
 
     res = app(event, {})
     assert res["headers"] == headers
@@ -236,19 +269,14 @@ def test_create_mosaicMVT(aws_put_data, get_mosaic, event):
     url_info = urllib.parse.urlparse(tileurl)
     assert url_info.netloc == "somewhere-over-the-rainbow.com"
     assert re.match(r"/[0-9A-Fa-f]{56}/{z}/{x}/{y}.mvt", url_info.path)
-    aws_put_data.assert_called()
+    backend.assert_called_once()
 
 
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_mosaic_definition")
-def test_get_mosaic_info(get_data, event):
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_info(backend, app, event):
     """Test /info route."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
-    get_data.return_value = mosaic_content
-
     event["path"] = "/info"
-    event["httpMethod"] = "GET"
-    event["queryStringParameters"] = dict(url="http://mymosaic.json")
+    event["queryStringParameters"] = dict(url="s3://my-bucket/mymosaic.json")
 
     headers = {
         "Access-Control-Allow-Credentials": "true",
@@ -256,176 +284,8 @@ def test_get_mosaic_info(get_data, event):
         "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
     }
-    statusCode = 200
 
-    res = app(event, {})
-    assert res["headers"] == headers
-    assert res["statusCode"] == statusCode
-    body = json.loads(res["body"])
-    assert body["bounds"]
-    assert body["center"]
-    assert body["maxzoom"] == 9
-    assert body["minzoom"] == 7
-    assert body["name"] == "http://mymosaic.json"
-    assert len(body["quadkeys"]) == 9
-    assert body["layers"] == ["band1", "band2", "band3"]
-    get_data.assert_called_once()
-
-
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_mosaic_definition")
-def test_get_mosaic_info_mosaicid(get_data, event):
-    """Test /info route."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
-    get_data.return_value = mosaic_content
-
-    event["path"] = "/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/info"
-    event["httpMethod"] = "GET"
-
-    headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET",
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-    }
-    statusCode = 200
-
-    res = app(event, {})
-    assert res["headers"] == headers
-    assert res["statusCode"] == statusCode
-    body = json.loads(res["body"])
-    assert body["bounds"]
-    assert body["center"]
-    assert body["maxzoom"] == 9
-    assert body["minzoom"] == 7
-    assert body["name"] == "b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516"
-    assert len(body["quadkeys"]) == 9
-    assert body["layers"] == ["band1", "band2", "band3"]
-    get_data.assert_called_once()
-
-
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_mosaic_definition")
-def test_get_mosaic_geojson_mosaicid(get_data, event):
-    """Test /geojson route."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
-    get_data.return_value = mosaic_content
-
-    event["path"] = "/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/geojson"
-    event["httpMethod"] = "GET"
-
-    headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET",
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-    }
-    statusCode = 200
-
-    res = app(event, {})
-    assert res["headers"] == headers
-    assert res["statusCode"] == statusCode
-    body = json.loads(res["body"])
-    assert body["type"] == "FeatureCollection"
-    assert len(body["features"]) == 9
-    get_data.assert_called_once()
-
-
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_mosaic_definition")
-def test_get_mosaic_wmts(get_data):
-    """Test /wmts route."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
-    get_data.return_value = mosaic_content
-
-    event = {
-        "resource": "/{proxy+}",
-        "pathParameters": {"proxy": "wmts"},
-        "path": "/wmts",
-        "headers": {"host": "somewhere-over-the-rainbow.com"},
-    }
-
-    event["httpMethod"] = "GET"
-    event["queryStringParameters"] = dict(tile_scale="2", url="http://mymosaic.json")
-
-    headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET",
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/xml",
-    }
-    statusCode = 200
-
-    res = app(event, {})
-    assert res["headers"] == headers
-    assert res["statusCode"] == statusCode
-    body = res["body"]
-    assert "https://somewhere-over-the-rainbow.com/wmts" in body
-    get_data.assert_called_once()
-
-
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_mosaic_definition")
-def test_get_mosaic_wmts_mosaicid(get_data):
-    """Test /wmts route."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
-    get_data.return_value = mosaic_content
-
-    event = {
-        "resource": "/{proxy+}",
-        "pathParameters": {
-            "proxy": "b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/wmts"
-        },
-        "path": "/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/wmts",
-        "headers": {"host": "somewhere-over-the-rainbow.com"},
-    }
-
-    event["httpMethod"] = "GET"
-    event["queryStringParameters"] = dict(tile_scale="2")
-
-    headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET",
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/xml",
-    }
-    statusCode = 200
-
-    res = app(event, {})
-    assert res["headers"] == headers
-    assert res["statusCode"] == statusCode
-    body = res["body"]
-    assert "https://somewhere-over-the-rainbow.com/wmts" in body
-    assert "99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516" in body
-    get_data.assert_called_once()
-
-
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_mosaic_definition")
-def test_tilejson(get_data, event):
-    """Test /tilejson.json route."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
-    get_data.return_value = mosaic_content
-
-    event = {
-        "resource": "/{proxy+}",
-        "pathParameters": {"proxy": "tilejson.json"},
-        "path": "/tilejson.json",
-        "headers": {"host": "somewhere-over-the-rainbow.com"},
-    }
-    event["path"] = "/tilejson.json"
-    event["httpMethod"] = "GET"
-    headers = {
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Allow-Methods": "GET",
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-    }
-    res = app(event, {})
-    assert res["statusCode"] == 400
-
-    # png 256px
-    event["queryStringParameters"] = dict(url="http://mymosaic.json", rescale="-1,1")
+    backend.side_effect = MosaicMock
 
     res = app(event, {})
     assert res["headers"] == headers
@@ -435,19 +295,145 @@ def test_tilejson(get_data, event):
     assert body["center"]
     assert body["maxzoom"] == 9
     assert body["minzoom"] == 7
-    assert body["name"] == "http://mymosaic.json"
+    assert body["name"] == "s3://my-bucket/mymosaic.json"
+    assert len(body["quadkeys"]) == 9
+    assert body["layers"] == ["band1", "band2", "band3"]
+    backend.assert_called_once()
+    backend.reset_mock()
+
+    event["queryStringParameters"] = dict(url="dynamodb://us-somewhere/table")
+    backend.side_effect = MosaicMockDB
+
+    res = app(event, {})
+    assert res["headers"] == headers
+    assert res["statusCode"] == 200
+    body = json.loads(res["body"])
+    assert body["bounds"]
+    assert body["center"]
+    assert body["maxzoom"] == 9
+    assert body["minzoom"] == 7
+    assert body["name"] == "dynamodb://us-somewhere/table"
+    assert not body.get("quadkeys")
+    assert not body.get("layers")
+    assert not body.get("dtype")
+    backend.assert_called_once()
+
+
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_info_mosaicid(backend, app, event):
+    """Test /info route."""
+    event["path"] = "/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/info"
+
+    headers = {
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET",
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json",
+    }
+    backend.side_effect = MosaicMock
+
+    res = app(event, {})
+    assert res["headers"] == headers
+    assert res["statusCode"] == 200
+    body = json.loads(res["body"])
+    assert body["bounds"]
+    assert body["center"]
+    assert body["maxzoom"] == 9
+    assert body["minzoom"] == 7
+    assert body["name"] == "b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516"
+    assert len(body["quadkeys"]) == 9
+    assert body["layers"] == ["band1", "band2", "band3"]
+    backend.assert_called_once()
+
+
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_info_MissingUrl(backend, app, event):
+    """Test /info route."""
+    event["path"] = "/info"
+
+    res = app(event, {})
+    assert res["statusCode"] == 400
+    assert res["body"] == "Missing 'MosaicID or URL' parameter"
+    backend.assert_not_called()
+
+
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_geojson_mosaicid(backend, app, event):
+    """Test /geojson route."""
+    event["path"] = "/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/geojson"
+
+    headers = {
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET",
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json",
+    }
+    backend.side_effect = MosaicMock
+
+    res = app(event, {})
+    assert res["headers"] == headers
+    assert res["statusCode"] == 200
+    body = json.loads(res["body"])
+    assert body["type"] == "FeatureCollection"
+    assert len(body["features"]) == 9
+    backend.assert_called_once()
+
+
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_geojson_MissingUrl(backend, app, event):
+    """Test /geojson route."""
+    event["path"] = "/geojson"
+
+    res = app(event, {})
+    assert res["statusCode"] == 400
+    assert res["body"] == "Missing 'MosaicID or URL' parameter"
+    backend.assert_not_called()
+
+
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_tilejson(backend, app, event):
+    """Test /tilejson.json route."""
+    event["path"] = "/tilejson.json"
+
+    headers = {
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET",
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/json",
+    }
+    res = app(event, {})
+    assert res["statusCode"] == 400
+    assert res["body"] == "Missing 'MosaicID or URL' parameter"
+    backend.assert_not_called()
+    backend.reset_mock()
+
+    # png 256px
+    event["queryStringParameters"] = dict(
+        url="s3://my-bucket/mymosaic.json", rescale="-1,1"
+    )
+    backend.side_effect = MosaicMock
+
+    res = app(event, {})
+    assert res["headers"] == headers
+    assert res["statusCode"] == 200
+    body = json.loads(res["body"])
+    assert body["bounds"]
+    assert body["center"]
+    assert body["maxzoom"] == 9
+    assert body["minzoom"] == 7
+    assert body["name"] == "s3://my-bucket/mymosaic.json"
     assert body["tilejson"] == "2.1.0"
 
     url_info = urllib.parse.urlparse(body["tiles"][0])
     assert url_info.netloc == "somewhere-over-the-rainbow.com"
     assert url_info.path == "/{z}/{x}/{y}@1x"
     qs = urllib.parse.parse_qs(url_info.query)
-    assert qs["url"][0] == "http://mymosaic.json"
+    assert qs["url"][0] == "s3://my-bucket/mymosaic.json"
     assert qs["rescale"][0] == "-1,1"
 
     # Jpeg 512px
     event["queryStringParameters"] = dict(
-        url="http://mymosaic.json", tile_format="jpg", tile_scale=2
+        url="s3://my-bucket/mymosaic.json", tile_format="jpg", tile_scale=2
     )
 
     res = app(event, {})
@@ -458,9 +444,11 @@ def test_tilejson(get_data, event):
     assert url_info.netloc == "somewhere-over-the-rainbow.com"
     assert url_info.path == "/{z}/{x}/{y}@2x.jpg"
     qs = urllib.parse.parse_qs(url_info.query)
-    assert qs["url"][0] == "http://mymosaic.json"
+    assert qs["url"][0] == "s3://my-bucket/mymosaic.json"
 
-    event["queryStringParameters"] = dict(url="http://mymosaic.json", tile_format="pbf")
+    event["queryStringParameters"] = dict(
+        url="s3://my-bucket/mymosaic.json", tile_format="pbf"
+    )
 
     res = app(event, {})
     assert res["headers"] == headers
@@ -470,25 +458,15 @@ def test_tilejson(get_data, event):
     assert url_info.netloc == "somewhere-over-the-rainbow.com"
     assert url_info.path == "/{z}/{x}/{y}.pbf"
     qs = urllib.parse.parse_qs(url_info.query)
-    assert qs["url"][0] == "http://mymosaic.json"
+    assert qs["url"][0] == "s3://my-bucket/mymosaic.json"
 
 
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_mosaic_definition")
-def test_tilejson_mosaicid(get_data):
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_tilejson_mosaicid(backend, app, event):
     """Test /tilejson.json route."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
-    get_data.return_value = mosaic_content
-
-    event = {
-        "resource": "/{proxy+}",
-        "pathParameters": {
-            "proxy": "b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/tilejson.json"
-        },
-        "path": "/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/tilejson.json",
-        "headers": {"host": "somewhere-over-the-rainbow.com"},
-    }
-    event["httpMethod"] = "GET"
+    event[
+        "path"
+    ] = "/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/tilejson.json"
     event["queryStringParameters"] = dict(rescale="-1,1")
 
     headers = {
@@ -497,6 +475,7 @@ def test_tilejson_mosaicid(get_data):
         "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
     }
+    backend.side_effect = MosaicMock
 
     res = app(event, {})
     assert res["headers"] == headers
@@ -506,10 +485,7 @@ def test_tilejson_mosaicid(get_data):
     assert body["center"]
     assert body["maxzoom"] == 9
     assert body["minzoom"] == 7
-    assert (
-        body["name"]
-        == "s3://my-bucket/mosaics/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516.json.gz"
-    )
+    assert body["name"] == "b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516"
     assert body["tilejson"] == "2.1.0"
 
     url_info = urllib.parse.urlparse(body["tiles"][0])
@@ -522,245 +498,263 @@ def test_tilejson_mosaicid(get_data):
     assert qs["rescale"][0] == "-1,1"
 
 
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_and_find_assets")
-def test_API_errors(get_assets, event):
-    """Test /tiles routes."""
-    from cogeo_mosaic_tiler.handlers.app import app
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_get_mosaic_wmts(backend, app, event):
+    """Test WMTS."""
+    event["path"] = "/wmts"
 
-    get_assets.return_value = []
-
-    # missing URL
-    event["path"] = f"/9/150/182.png"
-    event["httpMethod"] = "GET"
     res = app(event, {})
     assert res["statusCode"] == 400
-    headers = res["headers"]
-    assert headers["Content-Type"] == "text/plain"
-    assert res["body"] == "Missing 'URL' parameter"
+    assert res["body"] == "Missing 'MosaicID or URL' parameter"
+    backend.assert_not_called()
+
+    event["queryStringParameters"] = dict(
+        tile_scale="2", url="s3://my-bucket/mymosaic.json"
+    )
+
+    headers = {
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET",
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/xml",
+    }
+    backend.side_effect = MosaicMock
+
+    res = app(event, {})
+    assert res["headers"] == headers
+    assert res["statusCode"] == 200
+    body = res["body"]
+    assert "https://somewhere-over-the-rainbow.com/wmts" in body
+    backend.assert_called_once()
+
+
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_get_mosaic_wmts_mosaicid(backend, app, event):
+    """Test /wmts route."""
+    event["path"] = "/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/wmts"
+    event["queryStringParameters"] = dict(tile_scale="2")
+
+    headers = {
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET",
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "application/xml",
+    }
+    backend.side_effect = MosaicMock
+
+    res = app(event, {})
+    assert res["headers"] == headers
+    assert res["statusCode"] == 200
+    body = res["body"]
+    assert (
+        "https://somewhere-over-the-rainbow.com/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/wmts"
+        in body
+    )
+    assert (
+        "https://somewhere-over-the-rainbow.com/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/{TileMatrix}/"
+        in body
+    )
+    backend.assert_called_once()
+
+
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_API_errors(backend, app, event):
+    """Test /tiles routes."""
+    # missing URL
+    event["path"] = f"/9/150/182.png"
+    res = app(event, {})
+    assert res["statusCode"] == 400
+    assert res["body"] == "Missing 'MosaicID or URL' parameter"
+    backend.assert_not_called()
+    backend.reset_mock()
+
+    backend.side_effect = MosaicMock
 
     # empty assets
-    event["path"] = f"/9/150/182.png"
-    event["httpMethod"] = "GET"
-    event["queryStringParameters"] = dict(url="http://mymosaic.json")
+    event["path"] = f"/9/300/182.png"
+    event["queryStringParameters"] = dict(url="s3://my-bucket/mymosaic.json")
     res = app(event, {})
     assert res["statusCode"] == 204
     headers = res["headers"]
     assert headers["Content-Type"] == "text/plain"
-    assert res["body"] == "No assets found for tile 9-150-182"
+    assert res["body"] == "No assets found for tile 9-300-182"
 
 
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_and_find_assets")
-def test_API_tiles(get_assets, event):
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_API_tiles(backend, app, event):
     """Test /tiles routes."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
-    get_assets.return_value = [asset1, asset2]
+    backend.side_effect = MosaicMock
 
     event["path"] = f"/9/150/182.png"
-    event["httpMethod"] = "GET"
-    event["queryStringParameters"] = dict(url="http://mymosaic.json")
+    event["queryStringParameters"] = dict(url="s3://my-bucket/mymosaic.json")
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "image/png"
+    assert res["headers"]["Content-Type"] == "image/png"
     assert res["body"]
 
     event["path"] = f"/9/150/182.png"
-    event["httpMethod"] = "GET"
     event["queryStringParameters"] = dict(
-        url="http://mymosaic.json", pixel_selection="first"
+        url="s3://my-bucket/mymosaic.json", pixel_selection="first"
     )
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "image/png"
+    assert res["headers"]["Content-Type"] == "image/png"
     assert res["body"]
 
     event["path"] = f"/9/150/182.png"
-    event["httpMethod"] = "GET"
     event["queryStringParameters"] = dict(
-        url="http://mymosaic.json", pixel_selection="highest"
+        url="s3://my-bucket/mymosaic.json", pixel_selection="highest"
     )
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "image/png"
+    assert res["headers"]["Content-Type"] == "image/png"
     assert res["body"]
 
     event["path"] = f"/9/150/182.png"
-    event["httpMethod"] = "GET"
     event["queryStringParameters"] = dict(
-        url="http://mymosaic.json", pixel_selection="lowest"
+        url="s3://my-bucket/mymosaic.json", pixel_selection="lowest"
     )
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "image/png"
+    assert res["headers"]["Content-Type"] == "image/png"
     assert res["body"]
 
     event["path"] = f"/9/150/182.png"
-    event["httpMethod"] = "GET"
     event["queryStringParameters"] = dict(
-        url="http://mymosaic.json", pixel_selection="mean"
+        url="s3://my-bucket/mymosaic.json", pixel_selection="mean"
     )
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "image/png"
+    assert res["headers"]["Content-Type"] == "image/png"
     assert res["body"]
 
     event["path"] = f"/9/150/182.png"
-    event["httpMethod"] = "GET"
     event["queryStringParameters"] = dict(
-        url="http://mymosaic.json", pixel_selection="median"
+        url="s3://my-bucket/mymosaic.json", pixel_selection="median"
     )
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "image/png"
+    assert res["headers"]["Content-Type"] == "image/png"
     assert res["body"]
 
     event["path"] = f"/9/150/182.png"
-    event["httpMethod"] = "GET"
     event["queryStringParameters"] = dict(
-        url="http://mymosaic.json", rescale="0,10000", indexes="1", color_map="cfastie"
+        url="s3://my-bucket/mymosaic.json",
+        rescale="0,10000",
+        indexes="1",
+        color_map="cfastie",
     )
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "image/png"
+    assert res["headers"]["Content-Type"] == "image/png"
     assert res["body"]
 
     event["path"] = f"/9/150/182@2x.png"
-    event["httpMethod"] = "GET"
-    event["queryStringParameters"] = dict(url="http://mymosaic.json", rescale="0,10000")
+    event["queryStringParameters"] = dict(
+        url="s3://my-bucket/mymosaic.json", rescale="0,10000"
+    )
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "image/png"
+    assert res["headers"]["Content-Type"] == "image/png"
     assert res["body"]
 
     event["path"] = f"/9/155/182@2x"
-    event["httpMethod"] = "GET"
-    event["queryStringParameters"] = dict(url="http://mymosaic.json", rescale="0,10000")
+    event["queryStringParameters"] = dict(
+        url="s3://my-bucket/mymosaic.json", rescale="0,10000"
+    )
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "image/png"
+    assert res["headers"]["Content-Type"] == "image/png"
     assert res["body"]
 
     event["path"] = f"/9/150/182"
-    event["httpMethod"] = "GET"
-    event["queryStringParameters"] = dict(url="http://mymosaic.json", rescale="0,10000")
+    event["queryStringParameters"] = dict(
+        url="s3://my-bucket/mymosaic.json", rescale="0,10000"
+    )
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "image/jpg"
+    assert res["headers"]["Content-Type"] == "image/jpg"
+    assert res["body"]
+
+    # Mosaic ID
+    event[
+        "path"
+    ] = f"/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/9/150/182.png"
+    event["queryStringParameters"] = dict(rescale="0,10000")
+    res = app(event, {})
+    assert res["statusCode"] == 200
+    assert res["headers"]["Content-Type"] == "image/png"
     assert res["body"]
 
     event[
         "path"
-    ] = f"/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/9/150/182.png"
-    event["httpMethod"] = "GET"
+    ] = f"/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/9/150/182"
     event["queryStringParameters"] = dict(rescale="0,10000")
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "image/png"
+    assert res["headers"]["Content-Type"] == "image/jpg"
     assert res["body"]
 
     event[
         "path"
     ] = f"/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/9/150/182@2x.png"
-    event["httpMethod"] = "GET"
     event["queryStringParameters"] = dict(rescale="0,10000")
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "image/png"
+    assert res["headers"]["Content-Type"] == "image/png"
     assert res["body"]
 
     event[
         "path"
     ] = f"/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/9/150/182@2x"
-    event["httpMethod"] = "GET"
     event["queryStringParameters"] = dict(rescale="0,10000")
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "image/jpg"
+    assert res["headers"]["Content-Type"] == "image/jpg"
     assert res["body"]
 
 
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_and_find_assets")
-def test_API_emptytiles(get_assets, event):
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_API_MVTtiles(backend, app, event):
     """Test /tiles routes."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
-    get_assets.return_value = [asset1, asset2]
-
-    # empty assets
-    event["path"] = f"/9/140/182.png"
-    event["httpMethod"] = "GET"
-    event["queryStringParameters"] = dict(url="http://mymosaic.json")
-    res = app(event, {})
-    assert res["statusCode"] == 204
-    headers = res["headers"]
-    assert headers["Content-Type"] == "text/plain"
-    assert res["body"] == "empty tiles"
-
-
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_and_find_assets")
-def test_API_MVTtiles(get_assets, event):
-    """Test /tiles routes."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
-    get_assets.return_value = [asset1, asset2]
+    backend.side_effect = MosaicMock
 
     event["path"] = f"/9/150/182.pbf"
-    event["httpMethod"] = "GET"
     event["queryStringParameters"] = {}
     res = app(event, {})
     assert res["statusCode"] == 400
 
     event["path"] = f"/9/150/182.pbf"
-    event["httpMethod"] = "GET"
-    event["queryStringParameters"] = dict(url="http://mymosaic.json", tile_size="64")
+    event["queryStringParameters"] = dict(
+        url="s3://my-bucket/mymosaic.json", tile_size="64"
+    )
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "application/x-protobuf"
+    assert res["headers"]["Content-Type"] == "application/x-protobuf"
     assert res["body"]
 
     event[
         "path"
     ] = f"/b99dd7e8cc284c6da4d2899e16b6ff85c8ab97041ae7b459eb67e516/9/150/182.pbf"
-    event["httpMethod"] = "GET"
-    event["queryStringParameters"] = dict(url="http://mymosaic.json", tile_size="64")
+    event["queryStringParameters"] = dict(tile_size="64")
     res = app(event, {})
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "application/x-protobuf"
+    assert res["headers"]["Content-Type"] == "application/x-protobuf"
     assert res["body"]
 
 
-@patch("cogeo_mosaic_tiler.handlers.app.fetch_and_find_assets_point")
-def test_API_points(get_assets, event):
+@patch("cogeo_mosaic_tiler.handlers.app.MosaicBackend")
+def test_API_points(backend, app, event):
     """Test /point routes."""
-    from cogeo_mosaic_tiler.handlers.app import app
-
-    get_assets.return_value = [asset1, asset2]
+    backend.side_effect = MosaicMock
 
     event["path"] = f"/point"
-    event["httpMethod"] = "GET"
     event["queryStringParameters"] = dict(
-        url="http://mymosaic.json", lng="-73", lat="45"
+        url="s3://my-bucket/mymosaic.json", lng="-73", lat="45"
     )
     res = app(event, {})
-    print(res)
     assert res["statusCode"] == 200
-    headers = res["headers"]
-    assert headers["Content-Type"] == "application/json"
+    assert res["headers"]["Content-Type"] == "application/json"
     body = json.loads(res["body"])
     assert body["coordinates"]
     assert body["values"]
