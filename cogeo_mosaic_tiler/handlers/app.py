@@ -47,18 +47,20 @@ app = API(name="cogeo-mosaic-tiler")
 params = dict(cors=True, payload_compression_method="gzip", binary_b64encode=True)
 
 
+# We are storing new mosaicjson on AWS S3, if a user wants to change the storage
+# You could just change this function
+# e.g
+# def _create_mosaic_path(mosaicid: str,) -> str:
+#     """Translate mosaicid to dynamoDB path."""
+#     return f"dynamodb:///{mosaicid}"
+
+
 def _create_mosaic_path(
     mosaicid: str,
     bucket: str = os.environ["MOSAIC_DEF_BUCKET"],
     prefix: str = os.environ.get("MOSAIC_PREFIX", "mosaics"),
 ) -> str:
-    """
-    Translate mosaicid to s3 path.
-
-    mosaicid://{username}.{moisaicid}
-    mosaicid://{moisaicid}
-
-    """
+    """Translate mosaicid to s3 path."""
     key = f"{prefix}/{mosaicid}.json.gz" if prefix else f"{mosaicid}.json.gz"
     return f"s3://{bucket}/{key}"
 
@@ -169,7 +171,7 @@ def _info(mosaicid: str = None, url: str = None) -> Tuple:
             "center": meta["center"],
             "maxzoom": meta["maxzoom"],
             "minzoom": meta["minzoom"],
-            "name": mosaicid if mosaicid else url,
+            "name": mosaicid or url,
         }
 
         if not mosaic_path.startswith("dynamodb://"):
@@ -254,7 +256,7 @@ def _tilejson(
             "center": meta["center"],
             "maxzoom": meta["maxzoom"],
             "minzoom": meta["minzoom"],
-            "name": mosaicid if mosaicid else url,
+            "name": mosaicid or url,
             "tilejson": "2.1.0",
             "tiles": [tile_url],
         }
@@ -368,7 +370,7 @@ def _mvt(
                 tile,
                 mask,
                 band_descriptions,
-                mosaicid if mosaicid else os.path.basename(url),
+                mosaicid or os.path.basename(url),
                 feature_type=feature_type,
             ),
         )
