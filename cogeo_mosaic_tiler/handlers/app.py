@@ -453,13 +453,13 @@ def _img(
     driver = "jpeg" if ext == "jpg" else ext
     options = img_profiles.get(driver, {})
 
-    if color_map:
-        options["colormap"] = cmap.get(color_map)
-
     if ext == "tif":
         ext = "tiff"
         driver = "GTiff"
         options = geotiff_options(x, y, z, tilesize)
+
+    if color_map:
+        options["colormap"] = cmap.get(color_map)
 
     return (
         "OK",
