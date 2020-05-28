@@ -7,7 +7,7 @@ inst_reqs = [
     "cogeo-mosaic>=3.0a1",
     "lambda-proxy~=5.2",
     "rio-color",
-    "rio-tiler>=2.0a4",
+    "rio-tiler>=2.0a9",
 ]
 
 extra_reqs = {

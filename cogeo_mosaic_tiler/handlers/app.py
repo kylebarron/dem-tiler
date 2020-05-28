@@ -12,7 +12,7 @@ import rasterio
 from boto3.session import Session as boto3_session
 from lambda_proxy.proxy import API
 from rasterio.session import AWSSession
-from rio_tiler.colormap import get_colormap
+from rio_tiler.colormap import cmap
 from rio_tiler.io.cogeo import tile as cogeoTiler
 from rio_tiler.profiles import img_profiles
 from rio_tiler.reader import multi_point
@@ -24,10 +24,11 @@ from cogeo_mosaic import version as mosaic_version
 from cogeo_mosaic.backends import MosaicBackend
 from cogeo_mosaic.backends.utils import get_hash
 from cogeo_mosaic.mosaic import MosaicJSON
-from cogeo_mosaic_tiler import custom_methods
-from cogeo_mosaic_tiler.custom_cmaps import get_custom_cmap
+from cogeo_mosaic_tiler import custom_cmaps, custom_methods
 from cogeo_mosaic_tiler.ogc import wmts_template
 from cogeo_mosaic_tiler.utils import _aws_head_object, _get_layer_names, _postprocess
+
+cmap.register("custom_above", custom_cmaps.above_cmap)
 
 session = boto3_session()
 s3_client = session.client("s3")
@@ -445,17 +446,15 @@ def _img(
         return ("EMPTY", "text/plain", "empty tiles")
 
     rtile = _postprocess(tile, mask, rescale=rescale, color_formula=color_ops)
-    if color_map:
-        if color_map.startswith("custom_"):
-            color_map = get_custom_cmap(color_map)
-        else:
-            color_map = get_colormap(color_map)
 
     if not ext:
         ext = "jpg" if mask.all() else "png"
 
     driver = "jpeg" if ext == "jpg" else ext
     options = img_profiles.get(driver, {})
+
+    if color_map:
+        options["colormap"] = cmap.get(color_map)
 
     if ext == "tif":
         ext = "tiff"
@@ -465,7 +464,7 @@ def _img(
     return (
         "OK",
         f"image/{ext}",
-        render(rtile, mask, img_format=driver, colormap=color_map, **options),
+        render(rtile, mask, img_format=driver, **options),
     )
 
 

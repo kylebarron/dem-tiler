@@ -1,7 +1,5 @@
 """custom colormaps."""
 
-import re
-
 # colors from https://daac.ornl.gov/ABOVE/guides/Annual_Landcover_ABoVE.html
 above_cmap = {
     1: [58, 102, 24, 255],  # Evergreen Forest
@@ -15,13 +13,3 @@ above_cmap = {
     9: [144, 255, 255, 255],  # Shallows/Littoral
     10: [29, 0, 250, 255],  # Water
 }
-
-COLOR_MAPS = {"above": above_cmap.copy()}
-
-
-def get_custom_cmap(cname):
-    """Return custom colormap."""
-    if not re.match(r"^custom_", cname):
-        raise Exception("Invalid colormap name")
-    _, name = cname.split("_")
-    return COLOR_MAPS[name]
