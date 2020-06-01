@@ -12,11 +12,10 @@ import rasterio
 from boto3.session import Session as boto3_session
 from lambda_proxy.proxy import API
 from rasterio.session import AWSSession
-from rio_tiler.colormap import cmap
 from rio_tiler.io.cogeo import tile as cogeoTiler
 from rio_tiler.profiles import img_profiles
 from rio_tiler.reader import multi_point
-from rio_tiler.utils import geotiff_options, render
+from rio_tiler.utils import geotiff_options, render, mapzen_elevation_rgb
 from rio_tiler_mosaic.methods import defaults
 from rio_tiler_mosaic.mosaic import mosaic_tiler
 
@@ -25,9 +24,8 @@ from cogeo_mosaic.backends import MosaicBackend
 from cogeo_mosaic.backends.utils import get_hash
 from cogeo_mosaic.mosaic import MosaicJSON
 from dem_mosaic_tiler import custom_cmaps, custom_methods
-from dem_mosaic_tiler.utils import _aws_head_object, _get_layer_names, _postprocess
+from dem_mosaic_tiler.utils import _get_layer_names
 
-cmap.register("custom_above", custom_cmaps.above_cmap)
 
 session = boto3_session()
 s3_client = session.client("s3")
@@ -255,12 +253,7 @@ def _contour(
         if not assets:
             return ("EMPTY", "text/plain", f"No assets found for tile {z}-{x}-{y}")
 
-    if tile_size is not None and isinstance(tile_size, str):
-        tile_size = int(tile_size)
-
-    if pixel_selection == "last":
-        pixel_selection = "first"
-        assets = list(reversed(assets))
+    tile_size = int(tile_size)
 
     with rasterio.Env(aws_session):
         pixsel_method = PIXSEL_METHODS[pixel_selection]
@@ -293,21 +286,19 @@ def _contour(
     )
 
 
-@app.get("/<int:z>/<int:x>/<int:y>.<ext>", **params)
-@app.get("/<int:z>/<int:x>/<int:y>", **params)
-@app.get("/<int:z>/<int:x>/<int:y>@<int:scale>x.<ext>", **params)
-@app.get("/<int:z>/<int:x>/<int:y>@<int:scale>x", **params)
+@app.get("/rgb/<int:z>/<int:x>/<int:y>.<ext>", **params)
+@app.get("/rgb/<int:z>/<int:x>/<int:y>", **params)
+@app.get("/rgb/<int:z>/<int:x>/<int:y>@<int:scale>x.<ext>", **params)
+@app.get("/rgb/<int:z>/<int:x>/<int:y>@<int:scale>x", **params)
 def _img(
     z: int = None,
     x: int = None,
     y: int = None,
-    scale: int = 1,
-    ext: str = None,
+    tile_size: Union[str, int] = 256,
+    ext: str = 'png',
     url: str = None,
     indexes: Optional[Sequence[int]] = None,
-    rescale: str = None,
-    color_ops: str = None,
-    color_map: str = None,
+    encoding: str = 'terrarium',
     pixel_selection: str = "first",
     resampling_method: str = "nearest",
 ) -> Tuple:
@@ -323,11 +314,7 @@ def _img(
     if indexes is not None and isinstance(indexes, str):
         indexes = list(map(int, indexes.split(",")))
 
-    tilesize = 256 * scale
-
-    if pixel_selection == "last":
-        pixel_selection = "first"
-        assets = list(reversed(assets))
+    tile_size = int(tile_size)
 
     with rasterio.Env(aws_session):
         pixsel_method = PIXSEL_METHODS[pixel_selection]
@@ -338,7 +325,7 @@ def _img(
             z,
             cogeoTiler,
             indexes=indexes,
-            tilesize=tilesize,
+            tilesize=tile_size,
             pixel_selection=pixsel_method(),
             resampling_method=resampling_method,
         )
@@ -346,26 +333,25 @@ def _img(
     if tile is None:
         return ("EMPTY", "text/plain", "empty tiles")
 
-    rtile = _postprocess(tile, mask, rescale=rescale, color_formula=color_ops)
+    if encoding == 'terrarium':
+        rgb = mapzen_elevation_rgb(tile)
+    else:
+        raise ValueError('Invalid encoding')
 
-    if not ext:
-        ext = "jpg" if mask.all() else "png"
-
-    driver = "jpeg" if ext == "jpg" else ext
+    driver = ext
     options = img_profiles.get(driver, {})
 
     if ext == "tif":
         ext = "tiff"
         driver = "GTiff"
-        options = geotiff_options(x, y, z, tilesize)
-
-    if color_map:
-        options["colormap"] = cmap.get(color_map)
+        options = geotiff_options(x, y, z, tile_size)
 
     return (
         "OK",
         f"image/{ext}",
-        render(rtile, mask, img_format=driver, **options),
+        # NOTE: Do I need to include mask?
+        # render(rgb, mask, img_format=driver, **options),
+        render(rgb, img_format=driver, **options),
     )
 
 
@@ -380,11 +366,8 @@ def _point(
     if not lat or not lng:
         return ("NOK", "text/plain", "Missing 'Lon/Lat' parameter")
 
-    if isinstance(lng, str):
-        lng = float(lng)
-
-    if isinstance(lat, str):
-        lat = float(lat)
+    lng = float(lng)
+    lat = float(lat)
 
     with MosaicBackend(url) as mosaic:
         assets = mosaic.point(lng, lat)
