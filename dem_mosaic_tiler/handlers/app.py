@@ -25,7 +25,6 @@ from cogeo_mosaic.backends import MosaicBackend
 from cogeo_mosaic.backends.utils import get_hash
 from cogeo_mosaic.mosaic import MosaicJSON
 from dem_mosaic_tiler import custom_cmaps, custom_methods
-from dem_mosaic_tiler.ogc import wmts_template
 from dem_mosaic_tiler.utils import _aws_head_object, _get_layer_names, _postprocess
 
 cmap.register("custom_above", custom_cmaps.above_cmap)
@@ -49,27 +48,11 @@ params = dict(payload_compression_method="gzip", binary_b64encode=True)
 if os.environ.get("CORS"):
     params["cors"] = True
 
-# We are storing new mosaicjson on AWS S3, if a user wants to change the storage
-# You could just change this function
-# e.g
-# def _create_mosaic_path(mosaicid: str,) -> str:
-#     """Translate mosaicid to dynamoDB path."""
-#     return f"dynamodb:///{mosaicid}"
-
-
-def _create_mosaic_path(
-    mosaicid: str,
-    bucket: str = os.environ["MOSAIC_DEF_BUCKET"],
-    prefix: str = os.environ.get("MOSAIC_PREFIX", "mosaics"),
-) -> str:
-    """Translate mosaicid to s3 path."""
-    key = f"{prefix}/{mosaicid}.json.gz" if prefix else f"{mosaicid}.json.gz"
-    return f"s3://{bucket}/{key}"
-
 
 @app.post("/create", tag=["mosaic"], **params)
 def _create(
     body: str,
+    url: str = None,
     minzoom: Union[str, int] = None,
     maxzoom: Union[str, int] = None,
     min_tile_cover: Union[str, float] = None,
@@ -84,16 +67,19 @@ def _create(
         float(min_tile_cover) if isinstance(min_tile_cover, str) else min_tile_cover
     )
 
-    mosaicid = get_hash(
-        body=body,
-        minzoom=minzoom,
-        maxzoom=maxzoom,
-        min_tile_cover=min_tile_cover,
-        tile_cover_sort=tile_cover_sort,
-        version=mosaic_version,
-    )
+    if '{mosaicid}' in url:
+        mosaicid = get_hash(
+            body=body,
+            minzoom=minzoom,
+            maxzoom=maxzoom,
+            min_tile_cover=min_tile_cover,
+            tile_cover_sort=tile_cover_sort,
+            version=mosaic_version,
+        )
+        url = url.replace('{mosaicid}', mosaicid)
+
     try:
-        with MosaicBackend(_create_mosaic_path(mosaicid), client=s3_client) as mosaic:
+        with MosaicBackend(url) as mosaic:
             meta = mosaic.metadata
     except:  # noqa
         body = json.loads(body)
@@ -106,23 +92,20 @@ def _create(
                 tile_cover_sort=tile_cover_sort,
             )
 
-        with MosaicBackend(
-            _create_mosaic_path(mosaicid),
-            mosaic_def=mosaic_definition,
-            client=s3_client,
-        ) as mosaic:
+        with MosaicBackend(url, mosaic_def=mosaic_definition) as mosaic:
             mosaic.write()
             meta = mosaic.metadata
 
     if tile_format in ["pbf", "mvt"]:
-        tile_url = f"{app.host}/{mosaicid}/{{z}}/{{x}}/{{y}}.{tile_format}"
+        tile_url = f"{app.host}/{{z}}/{{x}}/{{y}}.{tile_format}"
     elif tile_format in ["png", "jpg", "webp", "tif", "npy"]:
         tile_url = (
-            f"{app.host}/{mosaicid}/{{z}}/{{x}}/{{y}}@{tile_scale}x.{tile_format}"
+            f"{app.host}/{{z}}/{{x}}/{{y}}@{tile_scale}x.{tile_format}"
         )
     else:
-        tile_url = f"{app.host}/{mosaicid}/{{z}}/{{x}}/{{y}}@{tile_scale}x"
+        tile_url = f"{app.host}/{{z}}/{{x}}/{{y}}@{tile_scale}x"
 
+    kwargs.update(url=url)
     qs = urllib.parse.urlencode(list(kwargs.items()))
     if qs:
         tile_url += f"?{qs}"
@@ -132,7 +115,7 @@ def _create(
         "center": meta["center"],
         "maxzoom": meta["maxzoom"],
         "minzoom": meta["minzoom"],
-        "name": mosaicid,
+        "name": url,
         "tilejson": "2.1.0",
         "tiles": [tile_url],
     }
@@ -141,20 +124,15 @@ def _create(
 
 
 @app.post("/add", tag=["mosaic"], **params)
-def _add(body: str, mosaicid: str) -> Tuple:
-    if _aws_head_object(_create_mosaic_path(mosaicid), client=s3_client):
-        return ("NOK", "text/plain", f"Mosaic: {mosaicid} already exist.")
-
+def _add(body: str, url: str) -> Tuple:
     mosaic_definition = MosaicJSON(**json.loads(body))
-    with MosaicBackend(
-        _create_mosaic_path(mosaicid), mosaic_def=mosaic_definition
-    ) as mosaic:
+    with MosaicBackend(url, mosaic_def=mosaic_definition) as mosaic:
         mosaic.write()
 
     return (
         "OK",
         "application/json",
-        json.dumps({"id": mosaicid, "status": "READY"}, separators=(",", ":")),
+        json.dumps({"id": url, "status": "READY"}, separators=(",", ":")),
     )
 
 
@@ -162,24 +140,22 @@ params["cache_control"] = os.environ.get("CACHE_CONTROL", None)
 
 
 @app.get("/info", tag=["metadata"], **params)
-@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/info", tag=["metadata"], **params)
-def _info(mosaicid: str = None, url: str = None) -> Tuple:
+def _info( url: str = None) -> Tuple:
     """Handle /info requests."""
-    if not mosaicid and not url:
-        return ("NOK", "text/plain", "Missing 'MosaicID or URL' parameter")
+    if not url:
+        return ("NOK", "text/plain", "Missing URL parameter")
 
-    mosaic_path = _create_mosaic_path(mosaicid) if mosaicid else url
-    with MosaicBackend(mosaic_path) as mosaic:
+    with MosaicBackend(url) as mosaic:
         meta = mosaic.metadata
         response = {
             "bounds": meta["bounds"],
             "center": meta["center"],
             "maxzoom": meta["maxzoom"],
             "minzoom": meta["minzoom"],
-            "name": mosaicid or url,
+            "name": url,
         }
 
-        if not mosaic_path.startswith("dynamodb://"):
+        if not url.startswith("dynamodb://"):
             mosaic_quadkeys = set(mosaic._quadkeys)
             tile = mercantile.quadkey_to_tile(random.sample(mosaic_quadkeys, 1)[0])
             assets = mosaic.tile(*tile)
@@ -199,14 +175,12 @@ def _info(mosaicid: str = None, url: str = None) -> Tuple:
 
 
 @app.get("/geojson", tag=["metadata"], **params)
-@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/geojson", tag=["metadata"], **params)
-def _geojson(mosaicid: str = None, url: str = None) -> Tuple:
+def _geojson( url: str = None) -> Tuple:
     """Handle /geojson requests."""
-    if not mosaicid and not url:
-        return ("NOK", "text/plain", "Missing 'MosaicID or URL' parameter")
+    if not url:
+        return ("NOK", "text/plain", "Missing URL parameter")
 
-    mosaic_path = _create_mosaic_path(mosaicid) if mosaicid else url
-    with MosaicBackend(mosaic_path) as mosaic:
+    with MosaicBackend(url) as mosaic:
         geojson = {
             "type": "FeatureCollection",
             "features": [
@@ -224,23 +198,18 @@ params["tag"] = ["tiles"]
 
 
 @app.get("/tilejson.json", **params)
-@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/tilejson.json", **params)
 def _tilejson(
-    mosaicid: str = None,
     url: str = None,
     tile_scale: int = 1,
     tile_format: str = None,
     **kwargs: Any,
 ) -> Tuple:
     """Handle /tilejson.json requests."""
-    if not mosaicid and not url:
-        return ("NOK", "text/plain", "Missing 'MosaicID or URL' parameter")
+    if not url:
+        return ("NOK", "text/plain", "Missing URL parameter")
 
-    if not mosaicid:
-        kwargs.update(dict(url=url))
-        host = app.host
-    else:
-        host = f"{app.host}/{mosaicid}"
+    kwargs.update(dict(url=url))
+    host = app.host
 
     if tile_format in ["pbf", "mvt"]:
         tile_url = f"{host}/{{z}}/{{x}}/{{y}}.{tile_format}"
@@ -253,75 +222,22 @@ def _tilejson(
     if qs:
         tile_url += f"?{qs}"
 
-    mosaic_path = _create_mosaic_path(mosaicid) if mosaicid else url
-    with MosaicBackend(mosaic_path) as mosaic:
+    with MosaicBackend(url) as mosaic:
         meta = mosaic.metadata
         response = {
             "bounds": meta["bounds"],
             "center": meta["center"],
             "maxzoom": meta["maxzoom"],
             "minzoom": meta["minzoom"],
-            "name": mosaicid or url,
+            "name": url,
             "tilejson": "2.1.0",
             "tiles": [tile_url],
         }
     return ("OK", "application/json", json.dumps(response, separators=(",", ":")))
 
 
-@app.get("/wmts", **params)
-@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/wmts", **params)
-def _wmts(
-    mosaicid: str = None,
-    url: str = None,
-    tile_format: str = "png",
-    tile_scale: int = 1,
-    title: str = "Cloud Optimizied GeoTIFF Mosaic",
-    **kwargs: Any,
-) -> Tuple:
-    """Handle /wmts requests."""
-    if not mosaicid and not url:
-        return ("NOK", "text/plain", "Missing 'MosaicID or URL' parameter")
-
-    if tile_scale is not None and isinstance(tile_scale, str):
-        tile_scale = int(tile_scale)
-
-    if not mosaicid:
-        kwargs.update(dict(url=url))
-        host = app.host
-    else:
-        host = f"{app.host}/{mosaicid}"
-
-    query_string = urllib.parse.urlencode(list(kwargs.items()))
-    query_string = query_string.replace(
-        "&", "&amp;"
-    )  # & is an invalid character in XML
-    kwargs.pop("SERVICE", None)
-    kwargs.pop("REQUEST", None)
-
-    mosaic_path = _create_mosaic_path(mosaicid) if mosaicid else url
-    with MosaicBackend(mosaic_path) as mosaic:
-        meta = mosaic.metadata
-
-        return (
-            "OK",
-            "application/xml",
-            wmts_template(
-                host,
-                query_string,
-                minzoom=meta["minzoom"],
-                maxzoom=meta["maxzoom"],
-                bounds=meta["bounds"],
-                tile_scale=tile_scale,
-                tile_format=tile_format,
-                title=title,
-            ),
-        )
-
-
 @app.get("/<int:z>/<int:x>/<int:y>.pbf", **params)
-@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>.pbf", **params)
 def _mvt(
-    mosaicid: str = None,
     z: int = None,
     x: int = None,
     y: int = None,
@@ -334,11 +250,10 @@ def _mvt(
     """Handle MVT requests."""
     from rio_tiler_mvt.mvt import encoder as mvtEncoder  # noqa
 
-    if not mosaicid and not url:
-        return ("NOK", "text/plain", "Missing 'MosaicID or URL' parameter")
+    if not url:
+        return ("NOK", "text/plain", "Missing URL parameter")
 
-    mosaic_path = _create_mosaic_path(mosaicid) if mosaicid else url
-    with MosaicBackend(mosaic_path) as mosaic:
+    with MosaicBackend(url) as mosaic:
         assets = mosaic.tile(x, y, z)
         if not assets:
             return ("EMPTY", "text/plain", f"No assets found for tile {z}-{x}-{y}")
@@ -375,7 +290,7 @@ def _mvt(
                 tile,
                 mask,
                 band_descriptions,
-                mosaicid or os.path.basename(url),
+                os.path.basename(url),
                 feature_type=feature_type,
             ),
         )
@@ -385,17 +300,7 @@ def _mvt(
 @app.get("/<int:z>/<int:x>/<int:y>", **params)
 @app.get("/<int:z>/<int:x>/<int:y>@<int:scale>x.<ext>", **params)
 @app.get("/<int:z>/<int:x>/<int:y>@<int:scale>x", **params)
-@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>.<ext>", **params)
-@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>", **params)
-@app.get(
-    "/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>@<int:scale>x.<ext>",
-    **params,
-)
-@app.get(
-    "/<regex([0-9A-Fa-f]{56}):mosaicid>/<int:z>/<int:x>/<int:y>@<int:scale>x", **params
-)
 def _img(
-    mosaicid: str = None,
     z: int = None,
     x: int = None,
     y: int = None,
@@ -410,11 +315,10 @@ def _img(
     resampling_method: str = "nearest",
 ) -> Tuple:
     """Handle tile requests."""
-    if not mosaicid and not url:
-        return ("NOK", "text/plain", "Missing 'MosaicID or URL' parameter")
+    if not url:
+        return ("NOK", "text/plain", "Missing URL parameter")
 
-    mosaic_path = _create_mosaic_path(mosaicid) if mosaicid else url
-    with MosaicBackend(mosaic_path) as mosaic:
+    with MosaicBackend(url) as mosaic:
         assets = mosaic.tile(x, y, z)
         if not assets:
             return ("EMPTY", "text/plain", f"No assets found for tile {z}-{x}-{y}")
@@ -469,13 +373,12 @@ def _img(
 
 
 @app.get("/point", **params)
-@app.get("/<regex([0-9A-Fa-f]{56}):mosaicid>/point", **params)
 def _point(
-    mosaicid: str = None, lng: float = None, lat: float = None, url: str = None
+    lng: float = None, lat: float = None, url: str = None
 ) -> Tuple[str, str, str]:
     """Handle point requests."""
-    if not mosaicid and not url:
-        return ("NOK", "text/plain", "Missing 'MosaicID or URL' parameter")
+    if not url:
+        return ("NOK", "text/plain", "Missing URL parameter")
 
     if not lat or not lng:
         return ("NOK", "text/plain", "Missing 'Lon/Lat' parameter")
@@ -486,8 +389,7 @@ def _point(
     if isinstance(lat, str):
         lat = float(lat)
 
-    mosaic_path = _create_mosaic_path(mosaicid) if mosaicid else url
-    with MosaicBackend(mosaic_path) as mosaic:
+    with MosaicBackend(url) as mosaic:
         assets = mosaic.point(lng, lat)
         if not assets:
             return (
