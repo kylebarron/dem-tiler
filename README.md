@@ -1,13 +1,11 @@
-# cogeo-mosaic-tiler
+# dem-mosaic-tiler
 
-Serve Map tile from Cloud Optimized GeoTIFF mosaics based on [mosaicJSON](https://github.com/developmentseed/mosaicjson-spec).
+Work in progress
 
-[![CircleCI](https://circleci.com/gh/developmentseed/cogeo-mosaic-tiler.svg?style=svg)](https://circleci.com/gh/developmentseed/cogeo-mosaic-tiler)
-[![codecov](https://codecov.io/gh/developmentseed/cogeo-mosaic-tiler/branch/master/graph/badge.svg)](https://codecov.io/gh/developmentseed/cogeo-mosaic-tiler)
+A fork of [`cogeo-mosaic-tiler`][cogeo-mosaic-tiler] to serve elevation products
+on demand from a mosaic of Cloud-Optimized GeoTIFF elevation data.
 
-**Read the official announcement https://medium.com/devseed/cog-talk-part-2-mosaics-bbbf474e66df**
-
-![](https://user-images.githubusercontent.com/10407788/57888417-1fc75100-7800-11e9-93a3-b54d06fb4cd2.png)
+[cogeo-mosaic-tiler]: https://github.com/developmentseed/cogeo-mosaic-tiler
 
 # Deploy
 
@@ -25,14 +23,14 @@ This project uses [Serverless](https://serverless.com) to manage deploy on AWS.
 
 ```bash
 # Install and Configure serverless (https://serverless.com/framework/docs/providers/aws/guide/credentials/)
-$ npm install serverless -g 
+$ npm install serverless -g
 
 $ sls deploy --region us-east-1 --bucket a-bucket-where-you-store-data
 ```
 
 #### Docs
 
-See [/doc/API.md](/doc/API.md) for the documentation. 
+See [/doc/API.md](/doc/API.md) for the documentation.
 
 #### Live
 
@@ -50,10 +48,9 @@ $ cd cogeo-mosaic
 $ pip install -e .[dev]
 ```
 
-
 **Python >=3.6 only**
 
-This repo is set to use `pre-commit` to run *flake8*, *pydocstring* and *black* ("uncompromising Python code formatter") when committing new code.
+This repo is set to use `pre-commit` to run _flake8_, _pydocstring_ and _black_ ("uncompromising Python code formatter") when committing new code.
 
 ```
 $ pre-commit install
@@ -65,6 +62,6 @@ Verifying PEP257 Compliance..............................................Passed
 $ git push origin
 ```
 
-
 ## About
-Created by [Development Seed](<http://developmentseed.org>)
+
+Created by [Development Seed](http://developmentseed.org)
