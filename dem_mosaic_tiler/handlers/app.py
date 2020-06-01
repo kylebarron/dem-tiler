@@ -236,20 +236,17 @@ def _tilejson(
     return ("OK", "application/json", json.dumps(response, separators=(",", ":")))
 
 
-@app.get("/<int:z>/<int:x>/<int:y>.pbf", **params)
-def _mvt(
+@app.get("/contour/<int:z>/<int:x>/<int:y>.pbf", **params)
+def _contour(
     z: int = None,
     x: int = None,
     y: int = None,
     url: str = None,
     tile_size: Union[str, int] = 256,
     pixel_selection: str = "first",
-    feature_type: str = "point",
     resampling_method: str = "nearest",
 ) -> Tuple:
     """Handle MVT requests."""
-    from rio_tiler_mvt.mvt import encoder as mvtEncoder  # noqa
-
     if not url:
         return ("NOK", "text/plain", "Missing URL parameter")
 
@@ -277,23 +274,23 @@ def _mvt(
             pixel_selection=pixsel_method(),
             resampling_method=resampling_method,
         )
-        if tile is None:
-            return ("EMPTY", "text/plain", "empty tiles")
 
-        with rasterio.open(assets[0]) as src_dst:
-            band_descriptions = _get_layer_names(src_dst)
+    if tile is None:
+        return ("EMPTY", "text/plain", "empty tiles")
 
-        return (
-            "OK",
-            "application/x-protobuf",
-            mvtEncoder(
-                tile,
-                mask,
-                band_descriptions,
-                os.path.basename(url),
-                feature_type=feature_type,
-            ),
-        )
+    # TODO: shell out to gdal_contour, then to tippecanoe
+
+    return (
+        "OK",
+        "application/x-protobuf",
+        mvtEncoder(
+            tile,
+            mask,
+            band_descriptions,
+            os.path.basename(url),
+            feature_type=feature_type,
+        ),
+    )
 
 
 @app.get("/<int:z>/<int:x>/<int:y>.<ext>", **params)
