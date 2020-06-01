@@ -1,6 +1,7 @@
 """dem_mosaic_tiler.handlers.app: handle request for cogeo-mosaic-tiler endpoints."""
 
 import json
+from io import BytesIO
 import os
 import random
 import urllib.parse
@@ -25,6 +26,8 @@ from cogeo_mosaic.backends.utils import get_hash
 from cogeo_mosaic.mosaic import MosaicJSON
 from dem_mosaic_tiler import custom_cmaps, custom_methods
 from dem_mosaic_tiler.utils import _get_layer_names
+from pymartini import Martini, rescale_positions
+from quantized_mesh_encoder import encode
 
 
 session = boto3_session()
@@ -288,8 +291,6 @@ def _contour(
 
 @app.get("/rgb/<int:z>/<int:x>/<int:y>.<ext>", **params)
 @app.get("/rgb/<int:z>/<int:x>/<int:y>", **params)
-@app.get("/rgb/<int:z>/<int:x>/<int:y>@<int:scale>x.<ext>", **params)
-@app.get("/rgb/<int:z>/<int:x>/<int:y>@<int:scale>x", **params)
 def _img(
     z: int = None,
     x: int = None,
@@ -297,7 +298,6 @@ def _img(
     tile_size: Union[str, int] = 256,
     ext: str = 'png',
     url: str = None,
-    indexes: Optional[Sequence[int]] = None,
     encoding: str = 'terrarium',
     pixel_selection: str = "first",
     resampling_method: str = "nearest",
@@ -311,9 +311,6 @@ def _img(
         if not assets:
             return ("EMPTY", "text/plain", f"No assets found for tile {z}-{x}-{y}")
 
-    if indexes is not None and isinstance(indexes, str):
-        indexes = list(map(int, indexes.split(",")))
-
     tile_size = int(tile_size)
 
     with rasterio.Env(aws_session):
@@ -324,7 +321,6 @@ def _img(
             y,
             z,
             cogeoTiler,
-            indexes=indexes,
             tilesize=tile_size,
             pixel_selection=pixsel_method(),
             resampling_method=resampling_method,
@@ -352,6 +348,65 @@ def _img(
         # NOTE: Do I need to include mask?
         # render(rgb, mask, img_format=driver, **options),
         render(rgb, img_format=driver, **options),
+    )
+
+
+@app.get("/mesh/<int:z>/<int:x>/<int:y>.terrain", **params)
+@app.get("/mesh/<int:z>/<int:x>/<int:y>@<int:scale>x.terrain", **params)
+def _mesh(
+    z: int = None,
+    x: int = None,
+    y: int = None,
+    scale: int = 1,
+    url: str = None,
+    pixel_selection: str = "first",
+    resampling_method: str = "nearest",
+) -> Tuple:
+    """Handle tile requests."""
+    if not url:
+        return ("NOK", "text/plain", "Missing URL parameter")
+
+    with MosaicBackend(url) as mosaic:
+        assets = mosaic.tile(x, y, z)
+        if not assets:
+            return ("EMPTY", "text/plain", f"No assets found for tile {z}-{x}-{y}")
+
+    tile_size = 256 * int(scale)
+
+    with rasterio.Env(aws_session):
+        pixsel_method = PIXSEL_METHODS[pixel_selection]
+        tile, mask = mosaic_tiler(
+            assets,
+            x,
+            y,
+            z,
+            cogeoTiler,
+            tilesize=tile_size,
+            pixel_selection=pixsel_method(),
+            resampling_method=resampling_method,
+        )
+
+    martini = Martini(tile_size + 1)
+    terrain = tile.flatten()
+    mar_tile = martini.create_tile(terrain)
+    vertices, triangles = mar_tile.get_mesh(10)
+    bounds = mercantile.bounds(mercantile.Tile(x, y, z))
+
+    rescaled = rescale_positions(
+        vertices,
+        terrain,
+        tile_size=tile_size,
+        bounds=bounds,
+        flip_y=True
+    )
+
+    buf = BytesIO()
+    encode(buf, rescaled, triangles)
+    buf.seek(0)
+    return (
+        "OK",
+        "application/vnd.quantized-mesh",
+        buf.read()
     )
 
 
