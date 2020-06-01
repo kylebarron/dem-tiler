@@ -40,7 +40,7 @@ package:
 
 functions:
   app:
-    handler: cogeo_mosaic_tiler.handlers.app.app
+    handler: dem_mosaic_tiler.handlers.app.app
     memorySize: 2048
     timeout: 10
     layers:

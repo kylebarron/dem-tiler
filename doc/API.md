@@ -41,7 +41,7 @@ $ sha224sum mosaic.json.gz
 Most of the `GET` requests support using **mosaicid** in the path (prefix) instead of passing an url. When using mosaicid, the tiler will reconscruct a file s3 url and then result to `s3://{bucket}/mosaics/mosaicid.json.gz`, with `{bucket}` set in the environment variable. 
 
 ```python
-# https://github.com/developmentseed/cogeo-mosaic-tiler/blob/1bebcae6c3d8e5d726fc1ba55c40c79d23bdab15/cogeo_mosaic_tiler/handlers/app.py#L59-L66
+# https://github.com/developmentseed/cogeo-mosaic-tiler/blob/1bebcae6c3d8e5d726fc1ba55c40c79d23bdab15/dem_mosaic_tiler/handlers/app.py#L59-L66
 def _create_mosaic_path(
     mosaicid: str,
     bucket: str = os.environ["MOSAIC_DEF_BUCKET"],

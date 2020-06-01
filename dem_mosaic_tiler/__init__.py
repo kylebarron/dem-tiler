@@ -1,4 +1,4 @@
-"""Cogeo_mosaic_tiler."""
+"""dem_mosaic_tiler."""
 
 import pkg_resources
 

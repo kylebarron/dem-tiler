@@ -1,4 +1,4 @@
-"""cogeo_mosaic_tiler.handlers.app: handle request for cogeo-mosaic-tiler endpoints."""
+"""dem_mosaic_tiler.handlers.app: handle request for cogeo-mosaic-tiler endpoints."""
 
 import json
 import os
@@ -24,9 +24,9 @@ from cogeo_mosaic import version as mosaic_version
 from cogeo_mosaic.backends import MosaicBackend
 from cogeo_mosaic.backends.utils import get_hash
 from cogeo_mosaic.mosaic import MosaicJSON
-from cogeo_mosaic_tiler import custom_cmaps, custom_methods
-from cogeo_mosaic_tiler.ogc import wmts_template
-from cogeo_mosaic_tiler.utils import _aws_head_object, _get_layer_names, _postprocess
+from dem_mosaic_tiler import custom_cmaps, custom_methods
+from dem_mosaic_tiler.ogc import wmts_template
+from dem_mosaic_tiler.utils import _aws_head_object, _get_layer_names, _postprocess
 
 cmap.register("custom_above", custom_cmaps.above_cmap)
 
