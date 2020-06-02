@@ -1,29 +1,24 @@
 """dem_mosaic_tiler.handlers.app: handle request for cogeo-mosaic-tiler endpoints."""
 
 import json
-from io import BytesIO
 import os
-import random
 import urllib.parse
-import warnings
+from io import BytesIO
 from typing import Any, Tuple, Union
 
 import mercantile
 import rasterio
 from boto3.session import Session as boto3_session
 from lambda_proxy.proxy import API
+from pymartini import Martini, rescale_positions
+from quantized_mesh_encoder import encode
 from rasterio.session import AWSSession
 from rio_tiler.profiles import img_profiles
 from rio_tiler.reader import multi_point
-from rio_tiler.utils import geotiff_options, render, mapzen_elevation_rgb
+from rio_tiler.utils import geotiff_options, mapzen_elevation_rgb, render
 
-from cogeo_mosaic import version as mosaic_version
 from cogeo_mosaic.backends import MosaicBackend
-from cogeo_mosaic.backends.utils import get_hash
 from cogeo_mosaic.mosaic import MosaicJSON
-from dem_mosaic_tiler.utils import _get_layer_names
-from pymartini import Martini, rescale_positions
-from quantized_mesh_encoder import encode
 from dem_mosaic_tiler.reader import tile_assets
 
 session = boto3_session()
@@ -53,43 +48,6 @@ def _add(body: str, url: str) -> Tuple:
 
 
 params["cache_control"] = os.environ.get("CACHE_CONTROL", None)
-
-
-@app.get("/info", tag=["metadata"], **params)
-def _info(url: str = None) -> Tuple:
-    """Handle /info requests."""
-    if not url:
-        return ("NOK", "text/plain", "Missing URL parameter")
-
-    with MosaicBackend(url) as mosaic:
-        meta = mosaic.metadata
-        response = {
-            "bounds": meta["bounds"],
-            "center": meta["center"],
-            "maxzoom": meta["maxzoom"],
-            "minzoom": meta["minzoom"],
-            "name": url, }
-
-        if not url.startswith("dynamodb://"):
-            mosaic_quadkeys = set(mosaic._quadkeys)
-            tile = mercantile.quadkey_to_tile(
-                random.sample(mosaic_quadkeys, 1)[0])
-            assets = mosaic.tile(*tile)
-            with rasterio.open(assets[0]) as src_dst:
-                layer_names = _get_layer_names(src_dst)
-                dtype = src_dst.dtypes[0]
-
-            response["quadkeys"] = list(mosaic_quadkeys)
-            response["layers"] = layer_names
-            response["dtype"] = dtype
-        else:
-            warnings.warn(
-                "Cannot retrieve 'quadkeys,layers and dtype' from dynamoDB mosaic."
-            )
-
-        return (
-            "OK", "application/json", json.dumps(
-                response, separators=(",", ":")))
 
 
 @app.get("/geojson", tag=["metadata"], **params)
