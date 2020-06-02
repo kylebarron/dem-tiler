@@ -1,4 +1,4 @@
-"""cogeo-mosaic-tiler: utility functions."""
+"""dem-mosaic-tiler: utility functions."""
 
 from urllib.parse import urlparse
 

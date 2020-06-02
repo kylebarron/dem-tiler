@@ -1,6 +1,6 @@
 version: 2
 common: &common
-  working_directory: ~/cogeo-mosaic-tiler
+  working_directory: ~/dem-mosaic-tiler
   steps:
     - checkout
     - run: 

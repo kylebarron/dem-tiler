@@ -1,4 +1,4 @@
-"""dem_mosaic_tiler.handlers.app: handle request for cogeo-mosaic-tiler endpoints."""
+"""dem_mosaic_tiler.handlers.app: handle request for dem-mosaic-tiler endpoints."""
 
 import json
 import os
@@ -25,7 +25,7 @@ session = boto3_session()
 s3_client = session.client("s3")
 aws_session = AWSSession(session=session)
 
-app = API(name="cogeo-mosaic-tiler")
+app = API(name="dem-mosaic-tiler")
 
 params = dict(payload_compression_method="gzip", binary_b64encode=True)
 if os.environ.get("CORS"):

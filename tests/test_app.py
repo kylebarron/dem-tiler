@@ -95,7 +95,7 @@ def testing_env_var(monkeypatch):
 
 @pytest.fixture()
 def app():
-    """cogeo-mosaic-tiler handler fixture."""
+    """dem-mosaic-tiler handler fixture."""
     # HACK: We import the app in a test function to make sure the boto3_session uses
     # the monkeypatched env
     from dem_mosaic_tiler.handlers.app import app

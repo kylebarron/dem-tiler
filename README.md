@@ -2,10 +2,10 @@
 
 Work in progress
 
-A fork of [`cogeo-mosaic-tiler`][cogeo-mosaic-tiler] to serve elevation products
+A fork of [`dem-mosaic-tiler`][dem-mosaic-tiler] to serve elevation products
 on demand from a mosaic of Cloud-Optimized GeoTIFF elevation data.
 
-[cogeo-mosaic-tiler]: https://github.com/developmentseed/cogeo-mosaic-tiler
+[dem-mosaic-tiler]: https://github.com/developmentseed/dem-mosaic-tiler
 
 # Deploy
 
@@ -43,7 +43,7 @@ Issues and pull requests are more than welcome.
 **Dev install & Pull-Request**
 
 ```
-$ git clone http://github.com/developmentseed/cogeo-mosaic-tiler.git
+$ git clone http://github.com/developmentseed/dem-mosaic-tiler.git
 $ cd cogeo-mosaic
 $ pip install -e .[dev]
 ```
