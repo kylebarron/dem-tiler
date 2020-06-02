@@ -6,6 +6,22 @@ from boto3.session import Session as boto3_session
 from botocore.exceptions import ClientError
 
 
+def get_aws_terrain_url(x, y, z, dataset):
+    """Get AWS Open Data url for tile
+    """
+    if dataset == 'terrarium':
+        if z >= 16:
+            return None
+
+        return f's3://elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'
+
+    if dataset == 'geotiff':
+        if z >= 15:
+            return None
+
+        return f's3://elevation-tiles-prod/terrarium/{z}/{x}/{y}.tif'
+
+
 def _get_layer_names(src_dst):
     def _get_name(ix):
         name = src_dst.descriptions[ix - 1]

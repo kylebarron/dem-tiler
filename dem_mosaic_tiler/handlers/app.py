@@ -6,41 +6,30 @@ import os
 import random
 import urllib.parse
 import warnings
-from typing import Any, Optional, Sequence, Tuple, Union
+from typing import Any, Tuple, Union
 
 import mercantile
 import rasterio
 from boto3.session import Session as boto3_session
 from lambda_proxy.proxy import API
 from rasterio.session import AWSSession
-from rio_tiler.io.cogeo import tile as cogeoTiler
 from rio_tiler.profiles import img_profiles
 from rio_tiler.reader import multi_point
 from rio_tiler.utils import geotiff_options, render, mapzen_elevation_rgb
-from rio_tiler_mosaic.methods import defaults
-from rio_tiler_mosaic.mosaic import mosaic_tiler
 
 from cogeo_mosaic import version as mosaic_version
 from cogeo_mosaic.backends import MosaicBackend
 from cogeo_mosaic.backends.utils import get_hash
 from cogeo_mosaic.mosaic import MosaicJSON
-from dem_mosaic_tiler import custom_cmaps, custom_methods
 from dem_mosaic_tiler.utils import _get_layer_names
 from pymartini import Martini, rescale_positions
 from quantized_mesh_encoder import encode
+from dem_mosaic_tiler.reader import tile_assets
 
 session = boto3_session()
 s3_client = session.client("s3")
 aws_session = AWSSession(session=session)
 
-PIXSEL_METHODS = {
-    "first": defaults.FirstMethod,
-    "highest": defaults.HighestMethod,
-    "lowest": defaults.LowestMethod,
-    "mean": defaults.MeanMethod,
-    "median": defaults.MedianMethod,
-    "stdev": defaults.StdevMethod,
-    "bdix_stdev": custom_methods.bidx_stddev, }
 app = API(name="cogeo-mosaic-tiler")
 
 params = dict(payload_compression_method="gzip", binary_b64encode=True)
@@ -178,26 +167,9 @@ def _contour(
     if not url:
         return ("NOK", "text/plain", "Missing URL parameter")
 
-    with MosaicBackend(url) as mosaic:
-        assets = mosaic.tile(x, y, z)
-        if not assets:
-            return (
-                "EMPTY", "text/plain", f"No assets found for tile {z}-{x}-{y}")
-
     tile_size = int(tile_size)
-
-    with rasterio.Env(aws_session):
-        pixsel_method = PIXSEL_METHODS[pixel_selection]
-        tile, mask = mosaic_tiler(
-            assets,
-            x,
-            y,
-            z,
-            cogeoTiler,
-            tilesize=tile_size,
-            pixel_selection=pixsel_method(),
-            resampling_method=resampling_method,
-        )
+    tile, mask = tile_assets(
+        x, y, z, url, tile_size, pixel_selection, resampling_method)
 
     if tile is None:
         return ("EMPTY", "text/plain", "empty tiles")
@@ -224,26 +196,9 @@ def _img(
     if not url:
         return ("NOK", "text/plain", "Missing URL parameter")
 
-    with MosaicBackend(url) as mosaic:
-        assets = mosaic.tile(x, y, z)
-        if not assets:
-            return (
-                "EMPTY", "text/plain", f"No assets found for tile {z}-{x}-{y}")
-
     tile_size = int(tile_size)
-
-    with rasterio.Env(aws_session):
-        pixsel_method = PIXSEL_METHODS[pixel_selection]
-        tile, mask = mosaic_tiler(
-            assets,
-            x,
-            y,
-            z,
-            cogeoTiler,
-            tilesize=tile_size,
-            pixel_selection=pixsel_method(),
-            resampling_method=resampling_method,
-        )
+    tile, mask = tile_assets(
+        x, y, z, url, tile_size, pixel_selection, resampling_method)
 
     if tile is None:
         return ("EMPTY", "text/plain", "empty tiles")
@@ -278,6 +233,7 @@ def _mesh(
         y: int = None,
         scale: int = 1,
         url: str = None,
+        mesh_max_error: float = 10,
         pixel_selection: str = "first",
         resampling_method: str = "nearest",
 ) -> Tuple:
@@ -285,31 +241,19 @@ def _mesh(
     if not url:
         return ("NOK", "text/plain", "Missing URL parameter")
 
-    with MosaicBackend(url) as mosaic:
-        assets = mosaic.tile(x, y, z)
-        if not assets:
-            return (
-                "EMPTY", "text/plain", f"No assets found for tile {z}-{x}-{y}")
-
     tile_size = 256 * int(scale)
+    tile, mask = tile_assets(
+        x, y, z, url, tile_size, pixel_selection, resampling_method)
 
-    with rasterio.Env(aws_session):
-        pixsel_method = PIXSEL_METHODS[pixel_selection]
-        tile, mask = mosaic_tiler(
-            assets,
-            x,
-            y,
-            z,
-            cogeoTiler,
-            tilesize=tile_size,
-            pixel_selection=pixsel_method(),
-            resampling_method=resampling_method,
-        )
+    if tile is None:
+        return ("EMPTY", "text/plain", "empty tiles")
 
     martini = Martini(tile_size + 1)
     terrain = tile.flatten()
     mar_tile = martini.create_tile(terrain)
-    vertices, triangles = mar_tile.get_mesh(10)
+
+    mesh_max_error = float(mesh_max_error)
+    vertices, triangles = mar_tile.get_mesh(mesh_max_error)
     bounds = mercantile.bounds(mercantile.Tile(x, y, z))
 
     rescaled = rescale_positions(
