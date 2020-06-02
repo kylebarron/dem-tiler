@@ -1,4 +1,4 @@
-service: cogeo-mosaic
+service: dem-mosaic-tiler
 
 provider:
   name: aws
@@ -10,12 +10,6 @@ provider:
 
   deploymentBucket: ${opt:bucket}
 
-  # Add Tags to resources
-  stackTags:
-    Project: cogeo
-    Owner: vincents
-    Client: labs
-
   apiGateway:
     binaryMediaTypes:
       - '*/*'
@@ -23,11 +17,6 @@ provider:
 
   # Add other buckets here if needed
   iamRoleStatements:
-  -  Effect: "Allow"
-     Action:
-       - "*"
-     Resource:
-       - "arn:aws:s3:::${opt:bucket}*"
   -  Effect: "Allow"
      Action:
        - "s3:GetObject"
