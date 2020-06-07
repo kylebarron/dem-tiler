@@ -21,9 +21,9 @@ def _find_terrarium_assets(x, y, z, tile_size):
         return [
             f'{base_url}/{z}/{x}/{y}.png',
             f'{base_url}/{z}/{x - 1}/{y}.png',
-            f'{base_url}/{z}/{x}/{y - 1}.png',
+            f'{base_url}/{z}/{x}/{y + 1}.png',
             f'{base_url}/{z}/{x + 1}/{y}.png',
-            f'{base_url}/{z}/{x}/{y + 1}.png']
+            f'{base_url}/{z}/{x}/{y - 1}.png']
 
     raise NotImplementedError(f'tile_size {tile_size} not implemented')
 
