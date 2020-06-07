@@ -1,13 +1,10 @@
-import numpy as np
+import json
+
 from osgeo import gdal, gdal_array, ogr, osr
-from rasterio import Affine, MemoryFile, features
-from rasterio.crs import CRS
-from shapely.geometry import LineString, mapping, shape
 
 
 def arr_to_gdal_image(
-        arr, gdal_transform, dtype=None, projection=None,
-        nodata=None):
+        arr, gdal_transform, dtype=None, projection=None, nodata=None):
     """
 
     Args:
@@ -49,8 +46,11 @@ def arr_to_gdal_image(
 
 
 def create_contour(gdal_image):
-    ogr_ds = ogr.GetDriverByName('GeoJSONSeq').CreateDataSource(
-        'contour.geojsonl')
+    """
+    Ref:
+    https://github.com/OSGeo/gdal/blob/3554675bbce8dc00030bac33c99d92764d0f3844/autotest/alg/contour.py#L88-L97
+    """
+    ogr_ds = ogr.GetDriverByName('Memory').CreateDataSource('memory_filename')
     ogr_lyr = ogr_ds.CreateLayer('contour')
     field_defn = ogr.FieldDefn('ID', ogr.OFTInteger)
     ogr_lyr.CreateField(field_defn)
@@ -60,5 +60,12 @@ def create_contour(gdal_image):
     gdal.ContourGenerate(
         gdal_image.GetRasterBand(1), 10, 0, [], 0, 0, ogr_lyr, 0, 1)
 
+    # Not sure if these are needed
     del gdal_image
     del ogr_ds
+
+    features = []
+    for i in range(ogr_lyr.GetFeatureCount()):
+        features.append(json.loads(ogr_lyr.GetFeature(i).ExportToJson()))
+
+    return features
