@@ -99,6 +99,7 @@ def load_assets(
         tile_size,
         input_format: str = None,
         output_format: str = None,
+        backfill: bool = False,
         pixel_selection: str = 'first',
         resampling_method: str = "nearest"):
 
@@ -109,7 +110,7 @@ def load_assets(
         if output_format == 'terrarium':
             return backfilled
 
-        data = decode_ele(backfilled, 'terrarium', backfill=False)
+        data = decode_ele(backfilled, 'terrarium', backfill=backfill)
 
     elif input_format == 'geotiff':
         arrays = [rasterio.open(asset).read() for asset in assets]

@@ -11,7 +11,7 @@ import rasterio
 from boto3.session import Session as boto3_session
 from lambda_proxy.proxy import API
 from pymartini import Martini, rescale_positions
-from quantized_mesh_encoder import encode
+import quantized_mesh_encoder
 from rasterio.session import AWSSession
 from rio_tiler.profiles import img_profiles
 from rio_tiler.reader import multi_point
@@ -217,6 +217,7 @@ def _mesh(
         z,
         assets,
         tile_size,
+        backfill=True,
         input_format=url,
         pixel_selection=pixel_selection,
         resampling_method=resampling_method)
@@ -235,10 +236,10 @@ def _mesh(
     rescaled = rescale_positions(
         vertices, terrain, tile_size=tile_size, bounds=bounds, flip_y=True)
 
-    buf = BytesIO()
-    encode(buf, rescaled, triangles)
-    buf.seek(0)
-    return ("OK", "application/vnd.quantized-mesh", buf.read())
+    with BytesIO() as f:
+        quantized_mesh_encoder.encode(f, rescaled, triangles)
+        f.seek(0)
+        return ("OK", "application/vnd.quantized-mesh", f.read())
 
 
 @app.get("/point", **params)
