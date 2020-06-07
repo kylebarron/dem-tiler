@@ -75,7 +75,6 @@ def backfill_arrays(center, left=None, bottom=None, right=None, top=None):
     # fill right
     new_arr[:, 1:-1, -1:] = right[:, :, :1]
 
-    # TODO: make sure these two are correct. Looks a little discontinuous
     # fill bottom
     new_arr[:, -1:, 1:-1] = bottom[:, :1, :]
 
