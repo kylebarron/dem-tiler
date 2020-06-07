@@ -1,5 +1,8 @@
 import json
+from pathlib import Path
+from subprocess import run
 
+from geojson import FeatureCollection
 from osgeo import gdal, gdal_array, ogr, osr
 
 
@@ -60,12 +63,25 @@ def create_contour(gdal_image):
     gdal.ContourGenerate(
         gdal_image.GetRasterBand(1), 10, 0, [], 0, 0, ogr_lyr, 0, 1)
 
-    # Not sure if these are needed
-    del gdal_image
-    del ogr_ds
-
     features = []
     for i in range(ogr_lyr.GetFeatureCount()):
         features.append(json.loads(ogr_lyr.GetFeature(i).ExportToJson()))
 
+    # Not sure if these are needed
+    # del gdal_image
+    # del ogr_ds
+
     return features
+
+
+def run_tippecanoe(features, x, y, z, path='.'):
+    path = Path('.').resolve()
+    fc = FeatureCollection(features)
+
+    cmd = f'tippecanoe -R "{z}/{x}/{y}" -f -e {str(path)}'
+    run(cmd, input=json.dumps(fc).encode('utf-8'), check=True, shell=True)
+
+    # Load and return mvt
+    mvt_path = path / str(z) / str(x) / f'{y}.pbf'
+    with open(mvt_path, 'rb') as f:
+        return f.read()

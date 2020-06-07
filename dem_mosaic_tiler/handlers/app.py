@@ -6,14 +6,13 @@ import urllib.parse
 from io import BytesIO
 from typing import Any, Tuple, Union
 
-from rasterio import transform
-
 import mercantile
+import quantized_mesh_encoder
 import rasterio
 from boto3.session import Session as boto3_session
 from lambda_proxy.proxy import API
 from pymartini import Martini, rescale_positions
-import quantized_mesh_encoder
+from rasterio import transform
 from rasterio.session import AWSSession
 from rio_tiler.profiles import img_profiles
 from rio_tiler.reader import multi_point
@@ -21,6 +20,7 @@ from rio_tiler.utils import geotiff_options, render
 
 from cogeo_mosaic.backends import MosaicBackend
 from cogeo_mosaic.mosaic import MosaicJSON
+from dem_mosaic_tiler.gdal import arr_to_gdal_image, create_contour, run_tippecanoe
 from dem_mosaic_tiler.reader import find_assets, load_assets
 
 session = boto3_session()
@@ -146,11 +146,15 @@ def _contour(
     if tile is None:
         return ("EMPTY", "text/plain", "empty tiles")
 
-    gdal_transform = transform.from_bounds(*mercantile.bounds(x, y, z), 256, 256).to_gdal()
-    gdal_image = arr_to_gdal_image(tile, gdal_transform=gdal_transform)
-    # TODO: shell out to gdal_contour, then to tippecanoe
+    bounds = mercantile.bounds(x, y, z)
+    gdal_transform = transform.from_bounds(*bounds, tile_size,
+                                           tile_size).to_gdal()
 
-    return ("OK", "application/x-protobuf", "")
+    gdal_image = arr_to_gdal_image(tile.T, gdal_transform)
+
+    features = create_contour(gdal_image)
+
+    return ("OK", "application/x-protobuf", run_tippecanoe(features, x, y, z))
 
 
 @app.get("/rgb/<int:z>/<int:x>/<int:y>.<ext>", **params)
