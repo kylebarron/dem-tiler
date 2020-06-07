@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from subprocess import run
 
@@ -74,14 +75,20 @@ def create_contour(gdal_image, interval=10, offset=0):
     return features
 
 
-def run_tippecanoe(features, x, y, z, path='.'):
-    path = Path('.').resolve()
+def run_tippecanoe(features, x, y, z, tippecanoe_path=None, tmp_path='.'):
+    if tippecanoe_path is None:
+        if os.getenv('LAMBDA_TASK_ROOT'):
+            tippecanoe_path = '/opt/tippecanoe'
+        else:
+            tippecanoe_path = 'tippecanoe'
+
+    tmp_path = Path('.').resolve()
     fc = FeatureCollection(features)
 
-    cmd = f'tippecanoe -R "{z}/{x}/{y}" -f -e {str(path)}'
+    cmd = f'{tippecanoe_path} -R "{z}/{x}/{y}" -f -e {str(tmp_path)}'
     run(cmd, input=json.dumps(fc).encode('utf-8'), check=True, shell=True)
 
     # Load and return mvt
-    mvt_path = path / str(z) / str(x) / f'{y}.pbf'
+    mvt_path = tmp_path / str(z) / str(x) / f'{y}.pbf'
     with open(mvt_path, 'rb') as f:
         return f.read()
