@@ -3,7 +3,6 @@ import os
 from pathlib import Path
 from subprocess import run
 
-from geojson import FeatureCollection
 from osgeo import gdal, gdal_array, ogr, osr
 
 
@@ -83,7 +82,7 @@ def run_tippecanoe(features, x, y, z, tippecanoe_path=None, tmpdir='.'):
             tippecanoe_path = 'tippecanoe'
 
     tmp_path = Path(tmpdir).resolve()
-    fc = FeatureCollection(features)
+    fc = {'type': 'FeatureCollection', 'features': features}
 
     cmd = f'{tippecanoe_path} -R "{z}/{x}/{y}" -f -e {str(tmp_path)}'
     run(cmd, input=json.dumps(fc).encode('utf-8'), check=True, shell=True)
