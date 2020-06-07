@@ -48,22 +48,17 @@ def arr_to_gdal_image(
     return image
 
 
-def gdal_contour(input_image):
-    # input_image = image
+def create_contour(gdal_image):
+    ogr_ds = ogr.GetDriverByName('GeoJSONSeq').CreateDataSource(
+        'contour.geojsonl')
+    ogr_lyr = ogr_ds.CreateLayer('contour')
+    field_defn = ogr.FieldDefn('ID', ogr.OFTInteger)
+    ogr_lyr.CreateField(field_defn)
+    field_defn = ogr.FieldDefn('elev', ogr.OFTReal)
+    ogr_lyr.CreateField(field_defn)
 
-    band = input_image.GetRasterBand(1)
-    dst_filename = asci + 'contour.shp'
-    #Generate layer to save Contourlines in
-    ogr_ds = ogr.GetDriverByName("GeoJSON").CreateDataSource(dst_filename)
-    contour_shp = ogr_ds.CreateLayer('contour')
+    gdal.ContourGenerate(
+        gdal_image.GetRasterBand(1), 10, 0, [], 0, 0, ogr_lyr, 0, 1)
 
-    field_defn = ogr.FieldDefn("ID", ogr.OFTInteger)
-    contour_shp.CreateField(field_defn)
-    field_defn = ogr.FieldDefn("elev", ogr.OFTReal)
-    contour_shp.CreateField(field_defn)
-
-    #Generate Contourlines
-    gdal.ContourGenerate(in1, 0, 0, [-888], 0, 0, contour_shp, 0, 1)
-    ogr_ds.Destroy()
-
-    pass
+    del gdal_image
+    del ogr_ds
