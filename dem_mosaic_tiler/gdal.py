@@ -48,7 +48,7 @@ def arr_to_gdal_image(
     return image
 
 
-def create_contour(gdal_image):
+def create_contour(gdal_image, interval=10, offset=0):
     """
     Ref:
     https://github.com/OSGeo/gdal/blob/3554675bbce8dc00030bac33c99d92764d0f3844/autotest/alg/contour.py#L88-L97
@@ -61,7 +61,7 @@ def create_contour(gdal_image):
     ogr_lyr.CreateField(field_defn)
 
     gdal.ContourGenerate(
-        gdal_image.GetRasterBand(1), 10, 0, [], 0, 0, ogr_lyr, 0, 1)
+        gdal_image.GetRasterBand(1), interval, offset, [], 0, 0, ogr_lyr, 0, 1)
 
     features = []
     for i in range(ogr_lyr.GetFeatureCount()):

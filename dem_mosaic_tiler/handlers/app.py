@@ -113,13 +113,16 @@ def _tilejson(
         "OK", "application/json", json.dumps(response, separators=(",", ":")))
 
 
-@app.get("/contour/<int:z>/<int:x>/<int:y>.pbf", **params)
+@app.get("/contour/<int:z>/<int:x>/<int:y>", **params)
 def _contour(
         z: int = None,
         x: int = None,
         y: int = None,
         url: str = None,
-        tile_size: Union[str, int] = 256,
+        scale: int = 1,
+        unit: str = 'meters',
+        interval: int = 10,
+        offset: int = 0,
         pixel_selection: str = "first",
         resampling_method: str = "nearest",
 ) -> Tuple:
@@ -127,7 +130,7 @@ def _contour(
     if not url:
         return ("NOK", "text/plain", "Missing URL parameter")
 
-    tile_size = int(tile_size)
+    tile_size = int(scale) * 256
     assets = find_assets(x, y, z, url, tile_size)
 
     if assets is None:
@@ -146,13 +149,17 @@ def _contour(
     if tile is None:
         return ("EMPTY", "text/plain", "empty tiles")
 
+    # Convert meters to feet
+    if unit == 'feet':
+        tile *= 3.28084
+
     bounds = mercantile.bounds(x, y, z)
     gdal_transform = transform.from_bounds(*bounds, tile_size,
                                            tile_size).to_gdal()
 
     gdal_image = arr_to_gdal_image(tile.T, gdal_transform)
 
-    features = create_contour(gdal_image)
+    features = create_contour(gdal_image, interval, offset)
 
     return ("OK", "application/x-protobuf", run_tippecanoe(features, x, y, z))
 
