@@ -6,7 +6,7 @@ from setuptools import find_packages, setup
 inst_reqs = [
     "cogeo-mosaic>=3.0a1",
     "lambda-proxy~=5.2",
-    "pymartini",
+    "pymartini>=0.2.3",
     "quantized-mesh-encoder",
     "rio-color",
     "rio-tiler>=2.0a9",
