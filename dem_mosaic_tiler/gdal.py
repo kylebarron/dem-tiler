@@ -6,14 +6,14 @@ from shapely.geometry import LineString, mapping, shape
 
 
 def arr_to_gdal_image(
-        arr, dtype=None, transform=(0, 1, 0, 0, 0, 1), projection=None,
+        arr, gdal_transform, dtype=None, projection=None,
         nodata=None):
     """
 
     Args:
         - arr: single-band numpy array, of shape (x, y), e.g. (256, 256)
         - dtype: numpy dtype. If None, inferred from arr
-        - transform: GDAL geotransform. Default `(0, 1, 0, 0, 0, 1)` (Identity matrix I think)
+        - gdal_transform: GDAL geogdal_transform. Default `(0, 1, 0, 0, 0, 1)` (Identity matrix I think)
         - projection: Defaults to EPSG 3857 (Web Mercator)
         - nodata: nodata value
     """
@@ -29,10 +29,7 @@ def arr_to_gdal_image(
     gdal_dtype = gdal_array.NumericTypeCodeToGDALTypeCode(dtype)
     image = driver.Create('memory_filename', x_res, y_res, 1, gdal_dtype)
 
-    if transform is None:
-        transform = (0, 1, 0, 0, 0, 1)
-
-    image.SetGeoTransform(transform)
+    image.SetGeoTransform(gdal_transform)
 
     if projection is None:
         gdal_projection = osr.SpatialReference()

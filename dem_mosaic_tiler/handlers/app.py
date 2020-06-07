@@ -6,6 +6,8 @@ import urllib.parse
 from io import BytesIO
 from typing import Any, Tuple, Union
 
+from rasterio import transform
+
 import mercantile
 import rasterio
 from boto3.session import Session as boto3_session
@@ -126,12 +128,26 @@ def _contour(
         return ("NOK", "text/plain", "Missing URL parameter")
 
     tile_size = int(tile_size)
-    tile, mask = tile_assets(
-        x, y, z, url, tile_size, pixel_selection, resampling_method)
+    assets = find_assets(x, y, z, url, tile_size)
+
+    if assets is None:
+        return ("NOK", "text/plain", "no assets found")
+
+    tile = load_assets(
+        x,
+        y,
+        z,
+        assets,
+        tile_size,
+        input_format=url,
+        pixel_selection=pixel_selection,
+        resampling_method=resampling_method)
 
     if tile is None:
         return ("EMPTY", "text/plain", "empty tiles")
 
+    gdal_transform = transform.from_bounds(*mercantile.bounds(x, y, z), 256, 256).to_gdal()
+    gdal_image = arr_to_gdal_image(tile, gdal_transform=gdal_transform)
     # TODO: shell out to gdal_contour, then to tippecanoe
 
     return ("OK", "application/x-protobuf", "")
