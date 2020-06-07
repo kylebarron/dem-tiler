@@ -4,6 +4,7 @@ import json
 import os
 import urllib.parse
 from io import BytesIO
+from tempfile import TemporaryDirectory
 from typing import Any, Tuple, Union
 
 import mercantile
@@ -161,7 +162,8 @@ def _contour(
 
     features = create_contour(gdal_image, interval, offset)
 
-    return ("OK", "application/x-protobuf", run_tippecanoe(features, x, y, z))
+    with TemporaryDirectory() as tmpdir:
+        return ("OK", "application/x-protobuf", run_tippecanoe(features, x, y, z, tmpdir=tmpdir))
 
 
 @app.get("/rgb/<int:z>/<int:x>/<int:y>.<ext>", **params)

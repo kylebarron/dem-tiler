@@ -13,8 +13,8 @@ def arr_to_gdal_image(
 
     Args:
         - arr: single-band numpy array, of shape (x, y), e.g. (256, 256)
+        - gdal_transform: GDAL geotransform
         - dtype: numpy dtype. If None, inferred from arr
-        - gdal_transform: GDAL geogdal_transform. Default `(0, 1, 0, 0, 0, 1)` (Identity matrix I think)
         - projection: Defaults to EPSG 3857 (Web Mercator)
         - nodata: nodata value
     """
@@ -75,14 +75,14 @@ def create_contour(gdal_image, interval=10, offset=0):
     return features
 
 
-def run_tippecanoe(features, x, y, z, tippecanoe_path=None, tmp_path='.'):
+def run_tippecanoe(features, x, y, z, tippecanoe_path=None, tmpdir='.'):
     if tippecanoe_path is None:
         if os.getenv('LAMBDA_TASK_ROOT'):
             tippecanoe_path = '/opt/tippecanoe'
         else:
             tippecanoe_path = 'tippecanoe'
 
-    tmp_path = Path('.').resolve()
+    tmp_path = Path(tmpdir).resolve()
     fc = FeatureCollection(features)
 
     cmd = f'{tippecanoe_path} -R "{z}/{x}/{y}" -f -e {str(tmp_path)}'
