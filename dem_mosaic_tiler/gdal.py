@@ -84,7 +84,7 @@ def run_tippecanoe(features, x, y, z, tippecanoe_path=None, tmpdir='.'):
     tmp_path = Path(tmpdir).resolve()
     fc = {'type': 'FeatureCollection', 'features': features}
 
-    cmd = f'{tippecanoe_path} -l contour -R "{z}/{x}/{y}" -f -e {str(tmp_path)}'
+    cmd = f'{tippecanoe_path} -l contour --no-tile-compression -R "{z}/{x}/{y}" -f -e {str(tmp_path)}'
     run(cmd, input=json.dumps(fc).encode('utf-8'), check=True, shell=True)
 
     # Load and return mvt
