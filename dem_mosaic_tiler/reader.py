@@ -4,6 +4,7 @@ from boto3.session import Session as boto3_session
 from pymartini import decode_ele
 from rasterio.session import AWSSession
 from rio_tiler.io.cogeo import tile as cogeoTiler
+from rio_tiler.utils import mapzen_elevation_rgb
 from rio_tiler_mosaic.methods import defaults
 from rio_tiler_mosaic.mosaic import mosaic_tiler
 
@@ -31,7 +32,7 @@ def find_assets(x, y, z, mosaic_url, tile_size):
         - y: OSM tile index
         - z: OSM tile index
         - mosaic_url: either url to MosaicJSON file, or the strings "terrarium" or "geotiff" to load terrarium or geotiff tiles from AWS Terrain Tiles
-        - tile_size, one of 256, 260, 512, 516
+        - tile_size, one of 256, 258, 512, 514
     """
     if mosaic_url == 'terrarium':
         return _find_terrarium_assets(x, y, z, tile_size)
@@ -58,7 +59,10 @@ def find_assets(x, y, z, mosaic_url, tile_size):
 # center, left, bottom, right, top = arrays
 
 
-def backfill_arrays(center, left, bottom, right, top):
+def backfill_arrays(center, left=None, bottom=None, right=None, top=None):
+    if left is None or bottom is None or right is None or top is None:
+        return center
+
     new_shape = center.shape[0], center.shape[1] + 2, center.shape[2] + 2
     new_arr = np.zeros(new_shape, center.dtype)
 
@@ -87,45 +91,45 @@ def backfill_arrays(center, left, bottom, right, top):
     return new_arr
 
 
-def tile_assets(
+def load_assets(
         x,
         y,
         z,
-        url,
+        assets,
         tile_size,
+        input_format: str = None,
+        output_format: str = None,
         pixel_selection: str = 'first',
         resampling_method: str = "nearest"):
 
-    if url in ['terrarium', 'geotiff']:
-        return load_aws_terrain(x, y, z, dataset=url)
+    if input_format == 'terrarium':
+        arrays = [rasterio.open(asset).read() for asset in assets]
+        backfilled = backfill_arrays(*arrays)
 
-    with MosaicBackend(url) as mosaic:
-        assets = mosaic.tile(x, y, z)
+        if output_format == 'terrarium':
+            return backfilled
 
-    if not assets:
-        return None, None
+        data = decode_ele(backfilled, 'terrarium', backfill=False)
 
-    with rasterio.Env(aws_session):
-        pixsel_method = PIXSEL_METHODS[pixel_selection]
-        return mosaic_tiler(
-            assets,
-            x,
-            y,
-            z,
-            cogeoTiler,
-            tilesize=tile_size,
-            pixel_selection=pixsel_method(),
-            resampling_method=resampling_method,
-        )
+    elif input_format == 'geotiff':
+        arrays = [rasterio.open(asset).read() for asset in assets]
+        data = backfill_arrays(*arrays)
 
+    else:
+        with rasterio.Env(aws_session):
+            pixsel_method = PIXSEL_METHODS[pixel_selection]
+            data, _ = mosaic_tiler(
+                assets,
+                x,
+                y,
+                z,
+                cogeoTiler,
+                tilesize=tile_size,
+                pixel_selection=pixsel_method(),
+                resampling_method=resampling_method,
+            )
 
-def load_aws_terrain(x, y, z, dataset):
-    assets = get_aws_terrain_url(x, y, z, dataset)
-    r = rasterio.open(assets)
-    data = r.read()
+    if output_format == 'terrarium':
+        return mapzen_elevation_rgb(data)
 
-    if dataset == 'terrarium':
-        data = decode_ele(data, 'terrarium')
-        decode_ele(data, 'terrarium', backfill=False).shape
-
-    return data, None
+    return data

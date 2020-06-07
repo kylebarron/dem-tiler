@@ -15,11 +15,11 @@ from quantized_mesh_encoder import encode
 from rasterio.session import AWSSession
 from rio_tiler.profiles import img_profiles
 from rio_tiler.reader import multi_point
-from rio_tiler.utils import geotiff_options, mapzen_elevation_rgb, render
+from rio_tiler.utils import geotiff_options, render
 
 from cogeo_mosaic.backends import MosaicBackend
 from cogeo_mosaic.mosaic import MosaicJSON
-from dem_mosaic_tiler.reader import tile_assets
+from dem_mosaic_tiler.reader import find_assets, load_assets
 
 session = boto3_session()
 s3_client = session.client("s3")
@@ -155,16 +155,24 @@ def _img(
         return ("NOK", "text/plain", "Missing URL parameter")
 
     tile_size = int(tile_size)
-    tile, mask = tile_assets(
-        x, y, z, url, tile_size, pixel_selection, resampling_method)
+    assets = find_assets(x, y, z, url, tile_size)
 
-    if tile is None:
+    if assets is None:
+        return ("NOK", "text/plain", "no assets found")
+
+    rgb = load_assets(
+        x,
+        y,
+        z,
+        assets,
+        tile_size,
+        input_format=url,
+        output_format=encoding,
+        pixel_selection=pixel_selection,
+        resampling_method=resampling_method)
+
+    if rgb is None:
         return ("EMPTY", "text/plain", "empty tiles")
-
-    if encoding == 'terrarium':
-        rgb = mapzen_elevation_rgb(tile)
-    else:
-        raise ValueError('Invalid encoding')
 
     driver = ext
     options = img_profiles.get(driver, {})
@@ -177,8 +185,6 @@ def _img(
     return (
         "OK",
         f"image/{ext}",
-        # NOTE: Do I need to include mask?
-        # render(rgb, mask, img_format=driver, **options),
         render(rgb, img_format=driver, **options),
     )
 
@@ -200,8 +206,20 @@ def _mesh(
         return ("NOK", "text/plain", "Missing URL parameter")
 
     tile_size = 256 * int(scale)
-    tile, mask = tile_assets(
-        x, y, z, url, tile_size, pixel_selection, resampling_method)
+    assets = find_assets(x, y, z, url, tile_size)
+
+    if assets is None:
+        return ("NOK", "text/plain", "no assets found")
+
+    tile = load_assets(
+        x,
+        y,
+        z,
+        assets,
+        tile_size,
+        input_format=url,
+        pixel_selection=pixel_selection,
+        resampling_method=resampling_method)
 
     if tile is None:
         return ("EMPTY", "text/plain", "empty tiles")
