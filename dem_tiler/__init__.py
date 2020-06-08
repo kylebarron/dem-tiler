@@ -1,4 +1,4 @@
-"""dem_mosaic_tiler."""
+"""dem_tiler."""
 
 import pkg_resources
 

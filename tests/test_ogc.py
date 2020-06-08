@@ -3,7 +3,7 @@
 import rasterio
 from click.testing import CliRunner
 
-from dem_mosaic_tiler import ogc
+from dem_tiler import ogc
 
 
 def test_fill_template():

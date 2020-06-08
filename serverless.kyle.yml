@@ -1,4 +1,4 @@
-service: dem-mosaic-tiler
+service: dem-tiler
 
 provider:
   name: aws
@@ -73,7 +73,7 @@ package:
 
 functions:
   app:
-    handler: dem_mosaic_tiler.handlers.app.app
+    handler: dem_tiler.handlers.app.app
     memorySize: 1536
     timeout: 10
     layers:

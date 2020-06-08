@@ -1,6 +1,6 @@
 version: 2
 common: &common
-  working_directory: ~/dem-mosaic-tiler
+  working_directory: ~/dem-tiler
   steps:
     - checkout
     - run: 

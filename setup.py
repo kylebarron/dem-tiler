@@ -22,7 +22,7 @@ extra_reqs = {
 }
 
 setup(
-    name="dem-mosaic-tiler",
+    name="dem-tiler",
     version="0.0.2",
     description=u"Serve Map tile from Cloud Optimized GeoTIFF mosaics.",
     long_description=u"Serve Map tile from Cloud Optimized GeoTIFF mosaics.",
@@ -37,7 +37,7 @@ setup(
     keywords="COG COGEO Mosaic GIS",
     author=u"Vincent Sarago",
     author_email="vincent@developmentseed.org",
-    url="https://github.com/developmentseed/dem-mosaic-tiler",
+    url="https://github.com/developmentseed/dem-tiler",
     license="MIT",
     packages=find_packages(exclude=["ez_setup", "examples", "tests"]),
     include_package_data=True,

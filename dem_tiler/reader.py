@@ -9,7 +9,7 @@ from rio_tiler_mosaic.methods import defaults
 from rio_tiler_mosaic.mosaic import mosaic_tiler
 
 from cogeo_mosaic.backends import MosaicBackend
-from dem_mosaic_tiler.utils import _find_geotiff_assets, _find_terrarium_assets
+from dem_tiler.utils import _find_geotiff_assets, _find_terrarium_assets
 
 session = boto3_session()
 s3_client = session.client("s3")

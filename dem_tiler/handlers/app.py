@@ -1,4 +1,4 @@
-"""dem_mosaic_tiler.handlers.app: handle request for dem-mosaic-tiler endpoints."""
+"""dem_tiler.handlers.app: handle request for dem-tiler endpoints."""
 
 import json
 import os
@@ -21,14 +21,14 @@ from rio_tiler.utils import geotiff_options, render
 
 from cogeo_mosaic.backends import MosaicBackend
 from cogeo_mosaic.mosaic import MosaicJSON
-from dem_mosaic_tiler.gdal import arr_to_gdal_image, create_contour, run_tippecanoe
-from dem_mosaic_tiler.reader import find_assets, load_assets
+from dem_tiler.gdal import arr_to_gdal_image, create_contour, run_tippecanoe
+from dem_tiler.reader import find_assets, load_assets
 
 session = boto3_session()
 s3_client = session.client("s3")
 aws_session = AWSSession(session=session)
 
-app = API(name="dem-mosaic-tiler")
+app = API(name="dem-tiler")
 
 params = dict(payload_compression_method="gzip", binary_b64encode=True)
 if os.environ.get("CORS"):
@@ -166,6 +166,15 @@ def _contour(
         return ("OK", "application/x-protobuf", run_tippecanoe(features, x, y, z, tmpdir=tmpdir))
 
 
+# z, x, y = 14, 3090, 6430
+# tile_size: Union[str, int] = 256
+# ext = 'png'
+# url = 'terrarium'
+# encoding: str = 'terrarium'
+# pixel_selection: str = "first"
+# resampling_method: str = "nearest"
+
+
 @app.get("/rgb/<int:z>/<int:x>/<int:y>.<ext>", **params)
 @app.get("/rgb/<int:z>/<int:x>/<int:y>", **params)
 def _img(
@@ -263,7 +272,7 @@ def _mesh(
     bounds = mercantile.bounds(mercantile.Tile(x, y, z))
 
     rescaled = rescale_positions(
-        vertices, terrain, tile_size=tile_size, bounds=bounds, flip_y=True)
+        vertices, terrain, tile_size=tile_size, bounds=bounds, flip_y=False)
 
     with BytesIO() as f:
         quantized_mesh_encoder.encode(f, rescaled, triangles)

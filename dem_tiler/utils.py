@@ -1,4 +1,4 @@
-"""dem-mosaic-tiler: utility functions."""
+"""dem-tiler: utility functions."""
 
 from urllib.parse import urlparse
 
