@@ -5,6 +5,9 @@ from setuptools import find_packages, setup
 # Runtime requirements.
 inst_reqs = [
     "cogeo-mosaic>=3.0a1",
+    # the GDAL C library is installed separately;
+    # This is specifically for the Python GDAL bindings, used to create contours
+    "gdal<3.0",
     "lambda-proxy~=5.2",
     "pymartini>=0.2.3",
     "quantized-mesh-encoder",

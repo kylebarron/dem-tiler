@@ -33,7 +33,12 @@ functions:
     memorySize: 2048
     timeout: 10
     layers:
+      # geolayer
+      # https://github.com/lambgeo/geo-layer
       - arn:aws:lambda:${self:provider.region}:524387336408:layer:gdal24-py37-geolayer:1
+      # tippecanoe-lambda
+      # https://github.com/kylebarron/tippecanoe-lambda
+      - arn:aws:lambda:${self:provider.region}:961053664803:layer:tippecanoe-lambda:1
     environment:
       CACHE_CONTROL: ${opt:cache-control, 'max-age=3600'}
       CPL_TMPDIR: /tmp
