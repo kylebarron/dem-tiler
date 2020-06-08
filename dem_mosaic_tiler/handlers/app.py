@@ -160,7 +160,7 @@ def _contour(
 
     gdal_image = arr_to_gdal_image(tile.T, gdal_transform)
 
-    features = create_contour(gdal_image, interval, offset)
+    features = list(create_contour(gdal_image, interval, offset))
 
     with TemporaryDirectory() as tmpdir:
         return ("OK", "application/x-protobuf", run_tippecanoe(features, x, y, z, tmpdir=tmpdir))

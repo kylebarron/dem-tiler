@@ -48,30 +48,32 @@ def arr_to_gdal_image(
     return image
 
 
-def create_contour(gdal_image, interval=10, offset=0):
+def create_contour(gdal_image, interval=10, offset=0, ele_name='ele'):
     """
     Ref:
     https://github.com/OSGeo/gdal/blob/3554675bbce8dc00030bac33c99d92764d0f3844/autotest/alg/contour.py#L88-L97
+
+    Args:
+        - gdal_image: opened GDAL object representing input image
+        - interval: Elevation interval between contours
+        - offset: Offset from zero relative to which to interpret intervals.
+        - ele_name: Name of property to contain elevation. Defaults to `ele`
+
+    Returns:
+        Iterator of GeoJSON LineString Features representing contour isobands
     """
     ogr_ds = ogr.GetDriverByName('Memory').CreateDataSource('memory_filename')
     ogr_lyr = ogr_ds.CreateLayer('contour')
     field_defn = ogr.FieldDefn('ID', ogr.OFTInteger)
     ogr_lyr.CreateField(field_defn)
-    field_defn = ogr.FieldDefn('elev', ogr.OFTReal)
+    field_defn = ogr.FieldDefn(ele_name, ogr.OFTReal)
     ogr_lyr.CreateField(field_defn)
 
     gdal.ContourGenerate(
         gdal_image.GetRasterBand(1), interval, offset, [], 0, 0, ogr_lyr, 0, 1)
 
-    features = []
     for i in range(ogr_lyr.GetFeatureCount()):
-        features.append(json.loads(ogr_lyr.GetFeature(i).ExportToJson()))
-
-    # Not sure if these are needed
-    # del gdal_image
-    # del ogr_ds
-
-    return features
+        yield json.loads(ogr_lyr.GetFeature(i).ExportToJson())
 
 
 def run_tippecanoe(features, x, y, z, tippecanoe_path=None, tmpdir='.'):
