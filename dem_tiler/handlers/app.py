@@ -272,7 +272,7 @@ def _mesh(
     bounds = mercantile.bounds(mercantile.Tile(x, y, z))
 
     rescaled = rescale_positions(
-        vertices, terrain, tile_size=tile_size, bounds=bounds, flip_y=False)
+        vertices, terrain, tile_size=tile_size, bounds=bounds, flip_y=True)
 
     with BytesIO() as f:
         quantized_mesh_encoder.encode(f, rescaled, triangles)
