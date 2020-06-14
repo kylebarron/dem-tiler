@@ -9,7 +9,7 @@ inst_reqs = [
     # This is specifically for the Python GDAL bindings, used to create contours
     "gdal<3.0",
     "lambda-proxy~=5.2",
-    "pymartini>=0.2.3",
+    "pymartini>=0.3.0",
     "quantized-mesh-encoder",
     "rio-color",
     "rio-tiler>=2.0a9",

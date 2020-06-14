@@ -163,7 +163,9 @@ def _contour(
     features = list(create_contour(gdal_image, interval, offset))
 
     with TemporaryDirectory() as tmpdir:
-        return ("OK", "application/x-protobuf", run_tippecanoe(features, x, y, z, tmpdir=tmpdir))
+        return (
+            "OK", "application/x-protobuf",
+            run_tippecanoe(features, x, y, z, tmpdir=tmpdir))
 
 
 # z, x, y = 14, 3090, 6430
@@ -264,15 +266,14 @@ def _mesh(
         return ("EMPTY", "text/plain", "empty tiles")
 
     martini = Martini(tile_size + 1)
-    terrain = tile.flatten()
-    mar_tile = martini.create_tile(terrain)
+    mar_tile = martini.create_tile(tile)
 
     mesh_max_error = float(mesh_max_error)
     vertices, triangles = mar_tile.get_mesh(mesh_max_error)
     bounds = mercantile.bounds(mercantile.Tile(x, y, z))
 
     rescaled = rescale_positions(
-        vertices, terrain, tile_size=tile_size, bounds=bounds, flip_y=True)
+        vertices, tile, bounds=bounds, flip_y=False, column_row=False)
 
     with BytesIO() as f:
         quantized_mesh_encoder.encode(f, rescaled, triangles)
