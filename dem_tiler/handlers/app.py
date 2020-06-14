@@ -240,6 +240,7 @@ def _mesh(
         mesh_max_error: float = 10,
         pixel_selection: str = "first",
         resampling_method: str = "nearest",
+        flip_y: bool = False,
 ) -> Tuple:
     """Handle tile requests."""
     if not url:
@@ -273,7 +274,7 @@ def _mesh(
     bounds = mercantile.bounds(mercantile.Tile(x, y, z))
 
     rescaled = rescale_positions(
-        vertices, tile, bounds=bounds, flip_y=False, column_row=False)
+        vertices, tile, bounds=bounds, flip_y=flip_y, column_row=False)
 
     with BytesIO() as f:
         quantized_mesh_encoder.encode(f, rescaled, triangles)
