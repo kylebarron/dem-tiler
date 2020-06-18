@@ -10,7 +10,7 @@ inst_reqs = [
     "gdal<3.0",
     "lambda-proxy~=5.2",
     "pymartini>=0.3.0",
-    "quantized-mesh-encoder",
+    "quantized-mesh-encoder>=0.1.2",
     "rio-color",
     "rio-tiler>=2.0a9",
 ]
