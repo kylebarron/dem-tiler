@@ -263,6 +263,9 @@ def _mesh(
         pixel_selection=pixel_selection,
         resampling_method=resampling_method)
 
+    # Need to transpose; must be before passing to Martini
+    tile = tile.T
+
     if tile is None:
         return ("EMPTY", "text/plain", "empty tiles")
 
@@ -273,8 +276,7 @@ def _mesh(
     vertices, triangles = mar_tile.get_mesh(mesh_max_error)
     bounds = mercantile.bounds(mercantile.Tile(x, y, z))
 
-    rescaled = rescale_positions(
-        vertices, tile, bounds=bounds, flip_y=flip_y, column_row=False)
+    rescaled = rescale_positions(vertices, tile, bounds=bounds, flip_y=flip_y)
 
     with BytesIO() as f:
         quantized_mesh_encoder.encode(f, rescaled, triangles)
