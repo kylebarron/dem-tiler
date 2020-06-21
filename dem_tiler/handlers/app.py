@@ -50,7 +50,8 @@ def _add(body: str, url: str) -> Tuple:
     )
 
 
-params["cache_control"] = os.environ.get("CACHE_CONTROL", None)
+# While in development, only apply cache control headers to selected endpoints
+# params["cache_control"] = os.environ.get("CACHE_CONTROL", None)
 
 
 @app.get("/geojson", tag=["metadata"], **params)
@@ -229,8 +230,14 @@ def _img(
     )
 
 
-@app.get("/mesh/<int:z>/<int:x>/<int:y>.terrain", **params)
-@app.get("/mesh/<int:z>/<int:x>/<int:y>@<int:scale>x.terrain", **params)
+@app.get(
+    "/mesh/<int:z>/<int:x>/<int:y>.terrain",
+    cache_control=os.getenv("CACHE_CONTROL", None),
+    **params)
+@app.get(
+    "/mesh/<int:z>/<int:x>/<int:y>@<int:scale>x.terrain",
+    cache_control=os.getenv("CACHE_CONTROL", None),
+    **params)
 def _mesh(
         z: int = None,
         x: int = None,
