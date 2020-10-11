@@ -12,7 +12,9 @@ import quantized_mesh_encoder
 import rasterio
 from boto3.session import Session as boto3_session
 from lambda_proxy.proxy import API
-from pymartini import Martini, rescale_positions
+from pymartini import Martini, rescale_positions as martini_rescale_positions
+from pydelatin import Delatin
+from pydelatin.util import rescale_positions as delatin_rescale_positions
 from rasterio import transform
 from rasterio.session import AWSSession
 from rio_tiler.profiles import img_profiles
@@ -247,11 +249,18 @@ def _mesh(
         mesh_max_error: float = 10,
         pixel_selection: str = "first",
         resampling_method: str = "nearest",
-        flip_y: bool = False,
+        mesh_algorithm: str = "pydelatin",
+        flip_y: str = "False",
 ) -> Tuple:
     """Handle tile requests."""
     if not url:
         return ("NOK", "text/plain", "Missing URL parameter")
+
+    # Coerce flip_y to bool
+    if not isinstance(flip_y, bool):
+        flip_y = flip_y in ['True', 'true']
+
+    use_delatin = 'delatin' in mesh_algorithm.lower()
 
     tile_size = 256 * int(scale)
     assets = find_assets(x, y, z, url, tile_size)
@@ -265,7 +274,8 @@ def _mesh(
         z,
         assets,
         tile_size,
-        backfill=True,
+        # Only need to backfill for martini, not delatin
+        backfill=not use_delatin,
         input_format=url,
         pixel_selection=pixel_selection,
         resampling_method=resampling_method)
@@ -276,14 +286,20 @@ def _mesh(
     if tile is None:
         return ("EMPTY", "text/plain", "empty tiles")
 
-    martini = Martini(tile_size + 1)
-    mar_tile = martini.create_tile(tile)
-
-    mesh_max_error = float(mesh_max_error)
-    vertices, triangles = mar_tile.get_mesh(mesh_max_error)
     bounds = mercantile.bounds(mercantile.Tile(x, y, z))
+    mesh_max_error = float(mesh_max_error)
 
-    rescaled = rescale_positions(vertices, tile, bounds=bounds, flip_y=flip_y)
+    if use_delatin:
+        tin = Delatin(tile, max_error=mesh_max_error)
+        vertices, triangles = tin.vertices, tin.triangles.flatten()
+        rescaled = delatin_rescale_positions(vertices, bounds, flip_y=flip_y)
+
+    else:
+        martini = Martini(tile_size + 1)
+        mar_tile = martini.create_tile(tile)
+
+        vertices, triangles = mar_tile.get_mesh(mesh_max_error)
+        rescaled = martini_rescale_positions(vertices, tile, bounds=bounds, flip_y=flip_y)
 
     with BytesIO() as f:
         quantized_mesh_encoder.encode(f, rescaled, triangles)

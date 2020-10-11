@@ -3,16 +3,19 @@
 from setuptools import find_packages, setup
 
 # Runtime requirements.
+# NOTE: there were breaking changes in cogeo-mosaic and rio-tiler between these
+# alpha releases and 3.0 and 2.0
 inst_reqs = [
-    "cogeo-mosaic>=3.0a1",
+    "cogeo-mosaic==3.0a1",
     # the GDAL C library is installed separately;
     # This is specifically for the Python GDAL bindings, used to create contours
     "gdal<3.0",
     "lambda-proxy~=5.2",
     "pymartini>=0.3.0",
+    "pydelatin>=0.2.0",
     "quantized-mesh-encoder>=0.1.2",
     "rio-color",
-    "rio-tiler>=2.0a9",
+    "rio-tiler==2.0a9",
 ]
 
 extra_reqs = {
