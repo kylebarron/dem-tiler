@@ -250,7 +250,7 @@ def _mesh(
         pixel_selection: str = "first",
         resampling_method: str = "nearest",
         mesh_algorithm: str = "pydelatin",
-        flip_y: str = "False",
+        flip_y: str = "True",
 ) -> Tuple:
     """Handle tile requests."""
     if not url:
